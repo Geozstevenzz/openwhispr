@@ -213,6 +213,11 @@ export default function App() {
     }
   }, [assistantOpenRef, setWindowInteractivity]);
 
+  // Mirrors the Hold migration card's visibility for useAudioRecording, which
+  // runs before useHoldMigrationCard below. A ref, not state: onNoAudio reads
+  // it long after render, so nothing needs to re-run when it changes.
+  const holdMigrationCardVisibleRef = useRef(false);
+
   const {
     isRecording,
     isProcessing,
@@ -227,6 +232,7 @@ export default function App() {
     getAudioLevel,
   } = useAudioRecording(toast, {
     onToggle: handleDictationToggle,
+    suppressNoAudioErrorRef: holdMigrationCardVisibleRef,
     onDemoEvent: publishOnboardingDemoEvent,
     onAssistantCommand: assistant.handleCommand,
     onOnboardingAssistantCommand: runOnboardingAssistantDemo,
@@ -335,6 +341,9 @@ export default function App() {
 
   const holdMigrationCard = useHoldMigrationCard();
   const holdMigrationCardMounted = holdMigrationCard.visible || holdMigrationCard.exiting;
+  useLayoutEffect(() => {
+    holdMigrationCardVisibleRef.current = holdMigrationCard.visible;
+  }, [holdMigrationCard.visible]);
 
   const handsFreeTip = useHandsFreeTip({
     completedRuns,
