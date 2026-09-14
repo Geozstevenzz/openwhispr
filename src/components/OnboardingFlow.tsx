@@ -64,6 +64,8 @@ import {
   type OnboardingStepId,
 } from "./onboarding/flow";
 import { useOnboardingSession } from "./onboarding/useOnboardingSession";
+import { usePermissionGuide } from "./onboarding/usePermissionGuide";
+import type { GuidePermission } from "./onboarding/permissionGuideController";
 import { clearPendingLocalModels, hasPendingLocalModels } from "./onboarding/pendingLocalModels";
 import { resolveAssistantDemoScenario } from "./onboarding/assistantDemoScenario";
 import { ActivationModeSelector } from "./ui/ActivationModeSelector";
@@ -107,6 +109,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     setSetupMode,
     setSelfHostedRequested,
     setScreenContextRequested,
+    setPermissionGuide,
     clearSession,
   } = useOnboardingSession();
 
@@ -202,6 +205,9 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     isMacOS,
     granted: screenRecordingGranted,
     needsRelaunch: screenRecordingNeedsRelaunch,
+    loaded: screenRecordingLoaded,
+    supported: screenRecordingSupported,
+    check: checkScreenRecording,
     request: requestScreenRecordingAccess,
   } = useScreenRecordingPermission();
   const {
@@ -280,13 +286,11 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 
   // macOS grants Screen Recording in System Settings, outside the app; the
   // permission hook re-checks on mount and window focus. When the grant lands,
-  // complete the opt-in the Enable click started. On macOS the grant serves
-  // only this feature, so one that already exists (a reset wipes the setting
-  // but not the permission) counts as the opt-in too; Windows is permissionless
-  // and keeps its explicit Enable.
+  // complete the opt-in the Enable click started. Visiting the guide alone
+  // must not enable Screen Context, even when macOS already granted access.
   useEffect(() => {
     if (!screenRecordingGranted || !agentAllowed || !screenContextAllowed) return;
-    if (screenContextRequested || (isMacOS && !settingsStore.voiceAgentScreenContext)) {
+    if (screenContextRequested) {
       applyScreenContext();
     }
   }, [
@@ -344,6 +348,87 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
       macAccessibilityChecksEnabled: shouldInitializeMacAccessibilityFeatures(currentStepId),
     }
   );
+  const guideRows: GuidePermission[] = [
+    {
+      id: "microphone",
+      granted: permissions.micPermissionGranted,
+      request: async () => {
+        await permissions.requestMicPermission();
+        const result = await window.electronAPI.checkMicrophoneAccess();
+        if (!result.granted) await permissions.openMicPrivacySettings();
+      },
+      check: async () => {
+        const result = await window.electronAPI.checkMicrophoneAccess();
+        permissions.setMicPermissionGranted(result.granted);
+        return result;
+      },
+      openSettings: permissions.openMicPrivacySettings,
+    },
+    {
+      id: "accessibility",
+      granted: permissions.accessibilityPermissionGranted,
+      request: permissions.requestAccessibilityPermission,
+      check: async () => {
+        const granted = await window.electronAPI.checkAccessibilityPermission(true);
+        permissions.setAccessibilityPermissionGranted(granted);
+        return { granted };
+      },
+      openSettings: async () => {
+        const result = await window.electronAPI.openAccessibilitySettings();
+        if (!result.success) throw new Error(result.error);
+      },
+    },
+  ];
+  if (systemAudio.mode === "native")
+    guideRows.push({
+      id: "system-audio",
+      granted: systemAudio.granted,
+      request: systemAudio.request,
+      check: async () => {
+        await systemAudio.check();
+        return window.electronAPI.checkSystemAudioAccess();
+      },
+      verify: async () => {
+        const result = await window.electronAPI.verifySystemAudioAccess();
+        await systemAudio.check();
+        return result;
+      },
+      openSettings: async () => {
+        const result = await window.electronAPI.openSystemAudioSettings();
+        if (!result.success) throw new Error(result.error);
+      },
+    });
+  if (agentAllowed && screenContextAllowed && screenRecordingSupported)
+    guideRows.push({
+      id: "screen-context",
+      granted: settingsStore.voiceAgentScreenContext && screenRecordingGranted,
+      needsRelaunch: screenRecordingNeedsRelaunch,
+      request: enableScreenContext,
+      check: async () => {
+        const result = await window.electronAPI.checkScreenRecordingAccess();
+        await checkScreenRecording();
+        return {
+          ...result,
+          granted:
+            result.granted && (settingsStore.voiceAgentScreenContext || screenContextRequested),
+        };
+      },
+      openSettings: async () => {
+        const result = await window.electronAPI.openScreenRecordingSettings();
+        if (!result.success) throw new Error(result.error);
+      },
+    });
+  const guideReady = platform === "darwin" && systemAudio.loaded && screenRecordingLoaded;
+  const permissionGuide = usePermissionGuide({
+    enabled: currentStepId === "permissions" && guideReady,
+    progress: session.permissionGuide,
+    save: setPermissionGuide,
+    rows: guideRows,
+  });
+
+  useEffect(() => {
+    if (currentStepId !== "permissions" && session.permissionGuide) setPermissionGuide(null);
+  }, [currentStepId, session.permissionGuide, setPermissionGuide]);
   const updateCurrentByokDraft = useCallback(
     (state: OnboardingByokDraft) => {
       if (currentStepId !== "byok-dictation" && currentStepId !== "byok-assistant") return;
@@ -867,6 +952,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
         return (
           <CompactPermissionsStep
             permissions={permissions}
+            guide={platform === "darwin" ? { ...permissionGuide, ready: guideReady } : undefined}
             systemAudio={systemAudio}
             screenContext={
               agentAllowed && screenContextAllowed

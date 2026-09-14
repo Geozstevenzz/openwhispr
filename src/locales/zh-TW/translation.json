@@ -577,6 +577,24 @@
         "title": "有一項下載未完成",
         "description": "請檢查網路連線與磁碟剩餘空間，然後重試。如果仍然失敗，請聯絡您的管理員。"
       }
+    },
+    "permissionGuide": {
+      "start": "引導我完成設定",
+      "progress": "第 {{current}} 步，共 {{total}} 步",
+      "return": "返回初始設定",
+      "drag": "拖入權限列表",
+      "missingApp": "若找不到 OpenWhispr，請按一下列表下方的 +，然後選擇正在使用的 OpenWhispr App。",
+      "unavailable": "無法開啟引導。請使用啟用按鈕前往系統設定繼續操作。",
+      "failed": "無法完成此步驟。請在設定中檢查 OpenWhispr 的開關，然後再試一次。",
+      "microphone": "在隱私權與安全性 → 麥克風中開啟 OpenWhispr。如果 macOS 要求結束並重新開啟 App，設定進度已儲存。",
+      "accessibility": "在隱私權與安全性 → 輔助使用中開啟 OpenWhispr。如果未列出，請加入下方的 App。",
+      "systemAudio": "在隱私權與安全性 → 螢幕與系統音訊錄製中，捲動至僅系統音訊錄製並開啟 OpenWhispr，然後按一下重新檢查。",
+      "screenContext": "在隱私權與安全性 → 螢幕與系統音訊錄製的螢幕錄製列表中開啟 OpenWhispr。如果未列出，請加入下方的 App。",
+      "settings": "開啟設定",
+      "check": "重新檢查",
+      "restart": "重新啟動",
+      "later": "稍後",
+      "restartRequired": "已授予權限。請重新啟動 OpenWhispr 以使用螢幕情境。設定進度已儲存。"
     }
   },
   "streaming": {

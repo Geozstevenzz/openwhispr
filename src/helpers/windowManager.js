@@ -1573,6 +1573,7 @@ class WindowManager {
 
   setOnboardingActive(active) {
     const nextActive = active === true;
+    if (!nextActive) this.permissionGuide?.close();
     if (nextActive === this._onboardingActive) {
       if (nextActive) this._hideNormalAppSurfaces();
       return true;

@@ -1,4 +1,6 @@
 import { PENDING_LOCAL_MODELS_KEY } from "./pendingLocalModels";
+import { parsePermissionGuideProgress } from "./permissionGuideState";
+import type { PermissionGuideProgress } from "../../types/permissionGuide";
 
 export const ONBOARDING_SESSION_KEY = "onboardingSessionV2";
 export const LEGACY_ONBOARDING_STEP_KEY = "onboardingCurrentStep";
@@ -88,6 +90,7 @@ export interface OnboardingSession {
    * dropped with the session at finalization.
    */
   screenContextRequested: boolean;
+  permissionGuide: PermissionGuideProgress | null;
   resume: OnboardingResumeState;
 }
 
@@ -204,6 +207,7 @@ export function createOnboardingSession(): OnboardingSession {
     setupMode: null,
     selfHostedRequested: false,
     screenContextRequested: false,
+    permissionGuide: null,
     resume: createOnboardingResumeState(),
   };
 }
@@ -437,6 +441,7 @@ export function parseOnboardingSession(value: string | null): OnboardingSession 
       setupMode,
       selfHostedRequested: parsed.selfHostedRequested ?? false,
       screenContextRequested: parsed.screenContextRequested ?? false,
+      permissionGuide: parsePermissionGuideProgress(parsed.permissionGuide),
       resume: parseOnboardingResumeState(parsed.resume, parsed.currentStepId),
     };
   } catch {
