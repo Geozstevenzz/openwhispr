@@ -39,11 +39,38 @@ const TOOL_INSTRUCTIONS: Record<string, string> = {
     "Use web_search for questions about current events, facts you're unsure about, or anything requiring up-to-date information.",
   copy_to_clipboard:
     "Use copy_to_clipboard when the user asks you to copy something to their clipboard.",
+  get_snippet:
+    "Use get_snippet whenever the user names one of their saved snippets or asks to insert, use, send, or read back saved text; match the trigger even if speech transcribed it slightly differently, and reproduce the returned text verbatim.",
+  update_snippets:
+    "Use update_snippets when the user asks to create, change, or delete a snippet (a spoken trigger that expands into saved text). If the user did not state both the trigger and the full replacement text, ask before saving.",
+  update_dictionary:
+    "Use update_dictionary when the user asks to add, remove, or fix the spelling of words in their custom dictionary; the current words are listed under Custom Dictionary. When asked to clean up the dictionary, list the exact removals you propose (duplicates, misspellings, casing variants, ordinary words) and wait for confirmation before removing anything the user did not name.",
   get_calendar_events:
     "Use get_calendar_events to check the user's schedule, upcoming meetings, or calendar events.",
+  get_calendar_availability:
+    "Use get_calendar_availability when the user asks when they are free or requests open time slots. Pass timezone-aware RFC3339 start and end timestamps, deriving the correct offset for each future date from the IANA time zone rather than assuming the current offset across a daylight-saving transition. Treat the returned slotCount and each slot's localized date, weekday, times, and duration as authoritative: use them exactly and never recalculate, add, omit, merge, or invent slots. For a broad multi-day request without daily-hour bounds, ask which hours of each day to consider, then make a separate call for each day. Results reflect the local calendar cache across the user's selected connected calendars, so describe free results as no scheduled conflicts found rather than guaranteed real-time availability, and never infer event details from availability facts.",
   draft_email:
     "Use draft_email when the user asks you to draft, write, or send an email (such as a follow-up after a meeting). Compose it from the note content and transcript. Use participant emails from the context as recipients; never invent an email address — leave recipients empty when none are known. The draft appears as an editable card the user reviews and sends themselves.",
 };
+
+const twoDigits = (value: number): string => String(value).padStart(2, "0");
+
+function formatLocalRfc3339(date: Date): string {
+  const offsetMinutes = -date.getTimezoneOffset();
+  const offsetSign = offsetMinutes >= 0 ? "+" : "-";
+  const absoluteOffset = Math.abs(offsetMinutes);
+  const offset = `${offsetSign}${twoDigits(Math.floor(absoluteOffset / 60))}:${twoDigits(absoluteOffset % 60)}`;
+  return (
+    `${date.getFullYear()}-${twoDigits(date.getMonth() + 1)}-${twoDigits(date.getDate())}` +
+    `T${twoDigits(date.getHours())}:${twoDigits(date.getMinutes())}:${twoDigits(date.getSeconds())}${offset}`
+  );
+}
+
+function getLocalCalendarContext(): string {
+  const now = new Date();
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  return `Current local date and time: ${formatLocalRfc3339(now)}. IANA time zone: ${timeZone}.`;
+}
 
 export function getAgentSystemPrompt(availableTools?: string[], noteContext?: string): string {
   let prompt = resolvePrompt("chatAgent", { agentName: null });
@@ -52,6 +79,9 @@ export function getAgentSystemPrompt(availableTools?: string[], noteContext?: st
     const toolLines = availableTools.map((name) => TOOL_INSTRUCTIONS[name]).filter(Boolean);
     if (toolLines.length > 0) {
       prompt += "\n\nYou have access to tools. " + toolLines.join(" ");
+    }
+    if (availableTools.includes("get_calendar_availability")) {
+      prompt += "\n\n" + getLocalCalendarContext();
     }
   }
 

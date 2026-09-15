@@ -6,10 +6,12 @@ interface PillCommandMenuProps {
   buttonRef: React.RefObject<HTMLDivElement | null>;
   isRecording: boolean;
   agentAllowed: boolean;
+  meetingAllowed: boolean;
   isHovered: boolean;
   setWindowInteractivity: (capture: boolean) => void;
   onToggleListening: () => void;
   onAskAssistant: () => void;
+  onStartMeeting: () => void;
   onHide: () => void;
   onClose: () => void;
 }
@@ -22,10 +24,12 @@ export function PillCommandMenu({
   buttonRef,
   isRecording,
   agentAllowed,
+  meetingAllowed,
   isHovered,
   setWindowInteractivity,
   onToggleListening,
   onAskAssistant,
+  onStartMeeting,
   onHide,
   onClose,
 }: PillCommandMenuProps): React.JSX.Element {
@@ -52,7 +56,7 @@ export function PillCommandMenu({
   return (
     <div
       ref={menuRef}
-      className="absolute bottom-full right-0 mb-3 w-48 rounded-lg border border-border bg-popover text-popover-foreground shadow-lg backdrop-blur-sm"
+      className="absolute bottom-full end-0 mb-3 w-48 rounded-lg border border-border bg-popover text-popover-foreground shadow-lg backdrop-blur-sm"
       onMouseEnter={() => {
         setWindowInteractivity(true);
       }}
@@ -63,25 +67,40 @@ export function PillCommandMenu({
       }}
     >
       <button
-        className="w-full px-3 py-2 text-left text-sm font-medium hover:bg-muted focus:bg-muted focus:outline-none"
+        className="w-full px-3 py-2 text-start text-sm font-medium hover:bg-muted focus:bg-muted focus:outline-none"
         onClick={onToggleListening}
       >
         {isRecording ? t("app.commandMenu.stopListening") : t("app.commandMenu.startListening")}
       </button>
-      {agentAllowed && (
+      {/* Opening the Agent panel mid-recording would strand the capture with no
+          surface (a translation recording becomes invisible AND un-stoppable:
+          its hotkey is blocked while the panel is open and Escape belongs to the
+          panel). Stop or finish the recording first. */}
+      {agentAllowed && !isRecording && (
         <>
           <div className="h-px bg-border" />
           <button
-            className="w-full px-3 py-2 text-left text-sm hover:bg-muted focus:bg-muted focus:outline-none"
+            className="w-full px-3 py-2 text-start text-sm hover:bg-muted focus:bg-muted focus:outline-none"
             onClick={onAskAssistant}
           >
             {t("app.commandMenu.askAssistant")}
           </button>
         </>
       )}
+      {meetingAllowed && !isRecording && (
+        <>
+          <div className="h-px bg-border" />
+          <button
+            className="w-full px-3 py-2 text-start text-sm hover:bg-muted focus:bg-muted focus:outline-none"
+            onClick={onStartMeeting}
+          >
+            {t("app.commandMenu.startMeetingRecording")}
+          </button>
+        </>
+      )}
       <div className="h-px bg-border" />
       <button
-        className="w-full px-3 py-2 text-left text-sm hover:bg-muted focus:bg-muted focus:outline-none"
+        className="w-full px-3 py-2 text-start text-sm hover:bg-muted focus:bg-muted focus:outline-none"
         onClick={onHide}
       >
         {t("app.commandMenu.hideForNow")}

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, CircleAlert, Loader2, Mail, Send } from "lucide-react";
+import { Check, CircleAlert, Loader2, Mail, Send } from "../icons";
 import { cn } from "../lib/utils";
 import { EMAIL_REGEX } from "../../utils/validation";
 import { parseRecipients, type EmailDraftCardData } from "./emailDrafts";

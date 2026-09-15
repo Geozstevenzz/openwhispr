@@ -7,6 +7,9 @@ import { listFoldersTool } from "./listFoldersTool";
 import { clipboardTool } from "./clipboardTool";
 import { webSearchTool } from "./webSearchTool";
 import { calendarTool } from "./calendarTool";
+import { calendarAvailabilityTool } from "./calendarAvailabilityTool";
+import { createSnippetTool, createUpdateSnippetsTool, type SnippetActions } from "./snippetTool";
+import { createUpdateDictionaryTool, type DictionaryActions } from "./dictionaryTool";
 import { createDraftEmailTool } from "./draftEmailTool";
 import type { ContainerScope } from "../../types/chat";
 
@@ -20,6 +23,8 @@ interface ToolRegistrySettings {
   /** Pins search_notes to a container (overview chat); the LLM cannot widen it. */
   searchScope?: ContainerScope;
   webSearchEnabled: boolean;
+  /** Live dictionary and snippet access; enables the vocabulary tools. */
+  vocabulary?: DictionaryActions & SnippetActions;
   /** Connected Gmail address; empty/absent disables draft_email. */
   gmailEmail?: string;
 }
@@ -35,12 +40,20 @@ export function createToolRegistry(settings: ToolRegistrySettings): ToolRegistry
   registry.register(listFoldersTool);
   registry.register(clipboardTool);
 
+  if (settings.vocabulary) {
+    const snippets = settings.vocabulary.getSnippets();
+    if (snippets.length > 0) registry.register(createSnippetTool(snippets));
+    registry.register(createUpdateDictionaryTool(settings.vocabulary));
+    registry.register(createUpdateSnippetsTool(settings.vocabulary));
+  }
+
   if (settings.isSignedIn && settings.webSearchEnabled) {
     registry.register(webSearchTool);
   }
 
   if (settings.calendarConnected) {
     registry.register(calendarTool);
+    registry.register(calendarAvailabilityTool);
   }
 
   if (settings.gmailEmail) {
