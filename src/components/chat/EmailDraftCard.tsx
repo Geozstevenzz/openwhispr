@@ -27,6 +27,7 @@ function FieldRow({
       </span>
       {onChange ? (
         <input
+          dir="auto"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           disabled={disabled}
@@ -142,11 +143,15 @@ export function EmailDraftCard({ draft }: { draft: EmailDraftCardData }) {
       />
 
       {isSent ? (
-        <p className="px-2.5 py-2 text-[12px] leading-relaxed text-muted-foreground whitespace-pre-wrap">
+        <p
+          dir="auto"
+          className="px-2.5 py-2 text-[12px] leading-relaxed text-muted-foreground whitespace-pre-wrap"
+        >
           {body}
         </p>
       ) : (
         <textarea
+          dir="auto"
           ref={bodyRef}
           value={body}
           onChange={(e) => setBody(e.target.value)}
@@ -192,11 +197,7 @@ export function EmailDraftCard({ draft }: { draft: EmailDraftCardData }) {
                 "disabled:bg-primary/50 disabled:cursor-default"
               )}
             >
-              {isSending ? (
-                <Loader2 size={11} className="animate-spin" />
-              ) : (
-                <Send size={11} />
-              )}
+              {isSending ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
               {isSending
                 ? t("agentMode.emailDraft.sending")
                 : sendState === "failed"
