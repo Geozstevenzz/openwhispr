@@ -106,7 +106,11 @@ test("requireCompleteOutput rejects a truncated reply through the whole local ch
 
   await assert.rejects(
     () => bridge.processText("edit this", modelId, { requireCompleteOutput: true }),
-    /truncated/
+    (error) => {
+      assert.equal(error.code, "OUTPUT_TRUNCATED");
+      assert.match(error.message, /truncated/);
+      return true;
+    }
   );
 });
 

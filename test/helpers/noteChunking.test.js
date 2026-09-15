@@ -58,6 +58,61 @@ test("empty and whitespace-only bodies plan to no chunks", async () => {
   assert.deepEqual(planNoteChunks("\n  \n", 100), []);
 });
 
+test("transcript continuations retain their speaker within the token budget", async () => {
+  const { planNoteChunks, estimateNoteTokens } = await load();
+  const body = "Bob: " + "We discussed the rollout. ".repeat(100) + "I own the invoice.";
+  const chunks = planNoteChunks(body, 100, { preserveSpeakerLabels: true });
+  assert.ok(chunks.length > 1);
+  for (const chunk of chunks) {
+    assert.ok(chunk.startsWith("Bob: "));
+    assert.ok(estimateNoteTokens(chunk) <= 100);
+  }
+  assert.equal(
+    normalise(chunks.map((chunk) => chunk.replace(/^Bob: /, "")).join(" ")),
+    normalise(body.slice(5))
+  );
+});
+
+test("plain notes do not repeat colon-prefixed text as a speaker", async () => {
+  const { planNoteChunks } = await load();
+  const chunks = planNoteChunks("Agenda: " + "topic ".repeat(100), 100);
+  assert.equal(chunks.filter((chunk) => chunk.includes("Agenda:")).length, 1);
+});
+
+test("a raw transcript's oversized colon prefix does not defeat chunking or retries", async () => {
+  const { planNoteChunks, splitChunkInHalf, estimateNoteTokens } = await load();
+  const body = "Background ".repeat(1000) + ": " + "Follow up ".repeat(20);
+  const options = { preserveSpeakerLabels: true };
+  const chunks = planNoteChunks(body, 1800, options);
+  for (const chunk of chunks) assert.ok(estimateNoteTokens(chunk) <= 1800);
+  assert.equal(normalise(chunks.join(" ")), normalise(body));
+  for (const half of splitChunkInHalf(body, options)) {
+    assert.ok(estimateNoteTokens(half) < estimateNoteTokens(body) * 0.75);
+  }
+});
+
+test("halving a skewed chunk splits the dominant line instead of only its neighbours", async () => {
+  const { splitChunkInHalf } = await load();
+  const body = "🚀".repeat(3500) + "\n" + "short\n".repeat(16).trim();
+  const halves = splitChunkInHalf(body);
+  assert.equal(
+    halves.map((half) => (half.match(/🚀/gu) || []).length).reduce((sum, count) => sum + count),
+    3500
+  );
+  for (const half of halves) {
+    assert.ok((half.match(/🚀/gu) || []).length < 2500);
+    assert.ok(half.isWellFormed());
+  }
+});
+
+test("retry splits preserve the speaker of a divided turn", async () => {
+  const { splitChunkInHalf } = await load();
+  const body = "Bob: " + "word ".repeat(100) + "I own the invoice.";
+  const halves = splitChunkInHalf(body, { preserveSpeakerLabels: true });
+  assert.ok(halves.every((half) => half.startsWith("Bob: ")));
+  assert.equal(normalise(halves.map((half) => half.slice(5)).join(" ")), normalise(body.slice(5)));
+});
+
 test("splitChunkInHalf prefers line boundaries, then word boundaries", async () => {
   const { splitChunkInHalf } = await load();
   assert.deepEqual(splitChunkInHalf("a\nb\nc\nd"), ["a\nb", "c\nd"]);

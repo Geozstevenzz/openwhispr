@@ -846,8 +846,8 @@ class ModelManager {
       });
       // A typed failure (a context overflow, say) must keep its identity, or
       // the renderer cannot translate it and the user sees raw server text.
-      if (error.code === "CONTEXT_TOO_LARGE") {
-        throw new ModelError(error.message, "CONTEXT_TOO_LARGE", {
+      if (error.code === "CONTEXT_TOO_LARGE" || error.code === "OUTPUT_TRUNCATED") {
+        throw new ModelError(error.message, error.code, {
           modelId,
           modelName: modelInfo.model.name,
           neededTokens: error.neededTokens ?? null,

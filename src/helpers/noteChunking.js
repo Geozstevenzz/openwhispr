@@ -66,8 +66,20 @@ function sliceByTokens(text, budgetTokens) {
   return slices;
 }
 
+function speakerPrefix(line) {
+  return line.match(/^[^:\n]+:[ \t]*/)?.[0] || "";
+}
+
 /** Splits one over-long line at spaces, then by tokens for unbroken runs. */
-function splitLongLine(line, budgetTokens) {
+function splitLongLine(line, budgetTokens, preserveSpeakerLabels) {
+  const prefix = preserveSpeakerLabels ? speakerPrefix(line) : "";
+  if (prefix && estimateNoteTokens(prefix) < budgetTokens) {
+    return splitLongLine(
+      line.slice(prefix.length),
+      budgetTokens - estimateNoteTokens(prefix),
+      false
+    ).map((piece) => prefix + piece);
+  }
   const pieces = [];
   let current = "";
   for (const word of line.split(/\s+/)) {
@@ -93,7 +105,7 @@ function splitLongLine(line, budgetTokens) {
  * Greedy line packing: each chunk holds as many whole lines as fit under the
  * budget, in order. A line that alone exceeds the budget is split at spaces.
  */
-export function planNoteChunks(body, budgetTokens) {
+export function planNoteChunks(body, budgetTokens, { preserveSpeakerLabels = false } = {}) {
   if (typeof body !== "string" || !(budgetTokens > 0)) return [];
   const chunks = [];
   let current = [];
@@ -101,7 +113,9 @@ export function planNoteChunks(body, budgetTokens) {
 
   for (const line of body.split("\n")) {
     const pieces =
-      estimateNoteTokens(line) > budgetTokens ? splitLongLine(line, budgetTokens) : [line];
+      estimateNoteTokens(line) > budgetTokens
+        ? splitLongLine(line, budgetTokens, preserveSpeakerLabels)
+        : [line];
     for (const piece of pieces) {
       const cost = estimateNoteTokens(piece) + 1; // the newline
       if (current.length > 0 && currentTokens + cost > budgetTokens) {
@@ -117,20 +131,40 @@ export function planNoteChunks(body, budgetTokens) {
   return chunks.filter((chunk) => chunk.trim().length > 0);
 }
 
-/** Halves a chunk on lines, words, then code points; null when it cannot be split. */
-export function splitChunkInHalf(chunk) {
-  const characters = Array.from(chunk);
+/** Prefer boundaries near the midpoint so a dominant line cannot exhaust all retries intact. */
+export function splitChunkInHalf(chunk, { preserveSpeakerLabels = false } = {}) {
+  const candidatePrefix =
+    preserveSpeakerLabels && !chunk.includes("\n") ? speakerPrefix(chunk) : "";
+  // Raw transcript prose may contain a colon; it must not become an unsplittable label.
+  const prefix = candidatePrefix.length < chunk.length / 2 ? candidatePrefix : "";
+  const characters = Array.from(chunk.slice(prefix.length));
   if (characters.length < 2) return null;
-  const lines = chunk.split("\n");
-  if (lines.length >= 2) {
-    const middle = Math.ceil(lines.length / 2);
-    return [lines.slice(0, middle).join("\n"), lines.slice(middle).join("\n")];
-  }
-  const words = chunk.split(/\s+/).filter(Boolean);
-  if (words.length >= 2) {
-    const middle = Math.ceil(words.length / 2);
-    return [words.slice(0, middle).join(" "), words.slice(middle).join(" ")];
-  }
   const middle = Math.ceil(characters.length / 2);
-  return [characters.slice(0, middle).join(""), characters.slice(middle).join("")];
+  let splitAt = middle;
+  for (const boundary of [/\n/u, /\s/u]) {
+    let closest = -1;
+    for (
+      let index = Math.ceil(characters.length / 4);
+      index <= Math.floor((characters.length * 3) / 4);
+      index += 1
+    ) {
+      if (
+        boundary.test(characters[index]) &&
+        (closest < 0 || Math.abs(index - middle) < Math.abs(closest - middle))
+      )
+        closest = index;
+    }
+    if (closest >= 0) {
+      splitAt = closest;
+      break;
+    }
+  }
+  const first = prefix + characters.slice(0, splitAt).join("").trimEnd();
+  const continuationPrefix =
+    prefix ||
+    (preserveSpeakerLabels && characters[splitAt] !== "\n"
+      ? speakerPrefix(first.split("\n").at(-1))
+      : "");
+  const second = continuationPrefix + characters.slice(splitAt).join("").trimStart();
+  return [first, second];
 }

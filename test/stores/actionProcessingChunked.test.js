@@ -218,6 +218,80 @@ async function waitForResult(store, updates) {
 const overflow = () => Object.assign(new Error("too big"), { code: "CONTEXT_TOO_LARGE" });
 const FLOOR_BUDGET = { success: true, maxContextTokens: 16384, modelName: "Local model" };
 
+test("a truncated part is split and only complete working notes reach the merge", async (t) => {
+  let partCalls = 0;
+  const { store, calls, updates } = await loadStore(t, {
+    failFirst: true,
+    processText: (text, config) => {
+      if (config.maxTokens === 4096) return "Final notes";
+      assert.equal(config.requireCompleteOutput, true);
+      partCalls += 1;
+      if (partCalls === 1) {
+        throw Object.assign(new Error("truncated"), { code: "OUTPUT_TRUNCATED" });
+      }
+      return `Complete working notes ${partCalls}`;
+    },
+  });
+  run(store, 17, longMaterial(20));
+  await waitForResult(store, updates);
+  assert.equal(updates.length, 1);
+  assert.equal(partCalls, 3);
+  assert.ok(calls.at(-1).text.includes("Complete working notes 2"));
+  assert.ok(calls.at(-1).text.includes("Complete working notes 3"));
+  assert.equal(calls.at(-1).config.requireCompleteOutput, undefined);
+});
+
+test("repeated part truncation stops at the split limit without saving", async (t) => {
+  const { store, calls, updates } = await loadStore(t, {
+    failFirst: true,
+    processText: () => {
+      throw Object.assign(new Error("truncated"), { code: "OUTPUT_TRUNCATED" });
+    },
+  });
+  run(store, 18, longMaterial(20));
+  await waitForResult(store, updates);
+  assert.equal(updates.length, 0);
+  assert.equal(calls.length, 5);
+  assert.equal(store.consumeErrorEvents()[0].message, "truncated");
+});
+
+test("cancelling a refused part prevents its first recursive retry", async (t) => {
+  let partReturned = false;
+  const { store, calls, updates } = await loadStore(t, {
+    failFirst: true,
+    processText: () => {
+      store.cancelAction(19);
+      partReturned = true;
+      throw overflow();
+    },
+  });
+  run(store, 19, longMaterial(20));
+  await waitFor(() => partReturned, "cancelled part");
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(calls.length, 2);
+  assert.equal(updates.length, 0);
+  assert.deepEqual(store.consumeErrorEvents(), []);
+});
+
+test("speaker attribution survives packing and an overflow retry", async (t) => {
+  let refused = false;
+  const { store, calls, updates } = await loadStore(t, {
+    failFirst: true,
+    processText: (text, config) => {
+      if (config.maxTokens === 2048 && !refused) {
+        refused = true;
+        throw overflow();
+      }
+      return "Working notes";
+    },
+  });
+  const transcript = "Bob: " + "We discussed the rollout. ".repeat(1500) + "I own the invoice.";
+  run(store, 20, { notes: "", meetingContext: "", transcript });
+  await waitForResult(store, updates);
+  assert.equal(updates.length, 1);
+  for (const call of calls.slice(1, -1)) assert.match(call.text, /\nBob: /);
+});
+
 test("a conservative overestimate preserves the original request when the model accepts it", async (t) => {
   const { store, calls, updates } = await loadStore(t, { budget: FLOOR_BUDGET });
   const material = { notes: LINE.repeat(600), meetingContext: "", transcript: "Alice: Hello." };

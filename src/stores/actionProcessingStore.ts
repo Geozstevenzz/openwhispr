@@ -266,27 +266,34 @@ async function runInParts(run: EnhancementRun, budget: LocalContextBudget): Prom
   );
   if (chunkBudget < MIN_CHUNK_BUDGET_TOKENS) throw tooLongForModel(budget.modelName);
 
-  const chunks = planNoteChunks(body, chunkBudget);
+  const chunks = planNoteChunks(body, chunkBudget, { preserveSpeakerLabels: hasTranscript });
   if (chunks.length === 0) throw tooLongForModel(budget.modelName);
   const total = chunks.length + 1;
   const partConfig: ReasoningConfig = {
     ...run.requestConfig,
     systemPrompt: PART_NOTES_SYSTEM_PROMPT,
     maxTokens: PART_NOTES_MAX_TOKENS,
+    requireCompleteOutput: true,
   };
 
-  const summarisePart = async (text: string, heading: string, depth = 0): Promise<string> => {
+  const summarisePart = async (
+    text: string,
+    heading: string,
+    preserveSpeakerLabels = false,
+    depth = 0
+  ): Promise<string> => {
+    if (isCancelled(run.noteId)) throw new Error("cancelled");
     const content = [context, `## ${heading}\n${text}`].filter(Boolean).join("\n\n");
     try {
       return await reasoningService.processText(content, run.modelId, null, partConfig);
     } catch (error) {
-      if (!isContextTooLarge(error) || depth >= MAX_SPLIT_DEPTH) throw error;
-      const halves = splitChunkInHalf(text);
+      const truncated = (error as LocalInferenceError | null)?.code === "OUTPUT_TRUNCATED";
+      if ((!isContextTooLarge(error) && !truncated) || depth >= MAX_SPLIT_DEPTH) throw error;
+      const halves = splitChunkInHalf(text, { preserveSpeakerLabels });
       if (!halves) throw error;
       const [first, second] = halves;
-      const firstNotes = await summarisePart(first, heading, depth + 1);
-      if (isCancelled(run.noteId)) throw error;
-      const secondNotes = await summarisePart(second, heading, depth + 1);
+      const firstNotes = await summarisePart(first, heading, preserveSpeakerLabels, depth + 1);
+      const secondNotes = await summarisePart(second, heading, preserveSpeakerLabels, depth + 1);
       return `${firstNotes}\n\n${secondNotes}`;
     }
   };
@@ -297,7 +304,11 @@ async function runInParts(run: EnhancementRun, budget: LocalContextBudget): Prom
     if (isCancelled(run.noteId)) throw new Error("cancelled");
     setNoteState(run.noteId, { progress: { step: index + 1, total } });
     partNotes.push(
-      await summarisePart(chunks[index], `${materialLabel} (part ${index + 1} of ${chunks.length})`)
+      await summarisePart(
+        chunks[index],
+        `${materialLabel} (part ${index + 1} of ${chunks.length})`,
+        hasTranscript
+      )
     );
   }
 
