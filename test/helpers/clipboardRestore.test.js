@@ -823,12 +823,15 @@ for (const [label, output] of [
 
 // The helper can only hang if the X server or an evdev read stalls, but a hung
 // wait must never hang the paste: the watchdog kills it and pastes as before.
-test("a hung modifier wait is killed after the watchdog budget and reads as unknown", async (t) => {
+test("a hung modifier wait is killed after the watchdog budget, reads as unknown, and ignores its late answer", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
+  const debugLogger = require("../../src/helpers/debugLogger");
+  const info = t.mock.method(debugLogger, "info");
   const kills = [];
+  let hungProcess;
   const TestClipboardManager = loadClipboardManager({
     spawn: () => {
-      const hungProcess = new EventEmitter();
+      hungProcess = new EventEmitter();
       hungProcess.stdout = new EventEmitter();
       hungProcess.stderr = new EventEmitter();
       hungProcess.exitCode = null;
@@ -853,6 +856,45 @@ test("a hung modifier wait is killed after the watchdog budget and reads as unkn
   await wait;
   assert.equal(state, "unknown");
   assert.deepEqual(kills, ["SIGKILL"]);
+
+  hungProcess.stdout.emit("data", "MODIFIERS held 1500\n");
+  hungProcess.emit("close", null);
+  assert.equal(
+    info.mock.calls.filter((call) => call.arguments[0] === "Waited for held modifier keys").length,
+    0,
+    "a killed helper's late output is not logged as a wait"
+  );
+});
+
+// Without /dev/input access on Wayland the helper answers "unknown" and the fix
+// is inert; the log must say so once, or support cannot tell that from "released".
+test("an unreadable modifier state is logged once per session", async (t) => {
+  const debugLogger = require("../../src/helpers/debugLogger");
+  const info = t.mock.method(debugLogger, "info");
+  const TestClipboardManager = loadClipboardManager({
+    spawn: createSpawn([], [0, 0, 0, 0], {
+      stdout: ["MODIFIERS unknown 0\n", "", "MODIFIERS unknown 0\n", ""],
+    }),
+    realModifierWait: true,
+  });
+  const manager = new TestClipboardManager();
+  manager.commandExists = (command) => command === "wtype";
+  manager.resolveLinuxFastPasteBinary = () => "/tmp/linux-fast-paste";
+
+  await withWaylandEnvironment("Sway", async () => {
+    await manager.pasteLinux(null);
+    await manager.pasteLinux(null);
+  });
+
+  const unreadable = info.mock.calls.filter(
+    (call) => call.arguments[0] === "Modifier key state unreadable, pasting without waiting"
+  );
+  assert.equal(unreadable.length, 1);
+  assert.deepEqual(unreadable[0].arguments[1], {
+    isWayland: true,
+    helperOutput: "MODIFIERS unknown 0",
+  });
+  assert.equal(unreadable[0].arguments[2], "clipboard");
 });
 
 test(

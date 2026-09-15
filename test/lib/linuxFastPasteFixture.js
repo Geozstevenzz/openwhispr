@@ -13,7 +13,11 @@ const LIBRARIES = ["-lX11", "-lXtst", "-lXext", "-lm"];
 // the fixture against the helper on a private Xvfb display. Returns the fixture's
 // spawnSync result, or null once the test is skipped because Xvfb, gcc or the X11
 // development libraries are missing.
-async function runLinuxFastPasteFixture(t, fixtureName, { env = process.env } = {}) {
+async function runLinuxFastPasteFixture(
+  t,
+  fixtureName,
+  { env = process.env, sharedLibraries = [] } = {}
+) {
   const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "openwhispr-fast-paste-"));
   let xvfb;
   t.after(async () => {
@@ -65,6 +69,20 @@ async function runLinuxFastPasteFixture(t, fixtureName, { env = process.env } = 
     assert.equal(compiled.status, 0, compiled.stderr);
   }
 
+  // Shared objects the fixture may LD_PRELOAD into the helper to stand in for a
+  // library that fails; their paths follow the helper on the fixture's argv.
+  const preloads = sharedLibraries.map((name) => {
+    const output = path.join(temporaryDirectory, `${name}.so`);
+    const compiled = spawnSync(
+      "gcc",
+      ["-shared", "-fPIC", path.join(ROOT, "test/native", `${name}.c`), "-o", output],
+      { encoding: "utf8", timeout: 10_000 }
+    );
+    assert.ifError(compiled.error);
+    assert.equal(compiled.status, 0, compiled.stderr);
+    return output;
+  });
+
   // Xvfb selects a free display itself; never send fixture input to the
   // developer's DISPLAY or assume that a hardcoded display number is unused.
   xvfb = spawn("Xvfb", ["-displayfd", "3", "-screen", "0", "1024x768x24", "-nolisten", "tcp"], {
@@ -81,7 +99,7 @@ async function runLinuxFastPasteFixture(t, fixtureName, { env = process.env } = 
   const [displayNumber] = await once(displayLines, "line", { signal: AbortSignal.timeout(5000) });
   assert.match(displayNumber, /^\d+$/, displayErrors);
 
-  const result = spawnSync(fixture, [helper], {
+  const result = spawnSync(fixture, [helper, ...preloads], {
     env: { ...env, DISPLAY: `:${displayNumber}` },
     encoding: "utf8",
     timeout: 10_000,

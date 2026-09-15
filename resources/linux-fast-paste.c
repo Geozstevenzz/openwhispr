@@ -874,7 +874,12 @@ static int test_key_bit(const unsigned char *bits, int code) {
     return (bits[code / 8] >> (code % 8)) & 1;
 }
 
-/* Same keyboard test as linux-key-listener.c: EV_KEY with a KEY_A bit. */
+/* ydotoold's virtual keyboard can keep a modifier down after an interrupted
+ * chord. That is not the user's hand, so it must not hold every paste back.
+ * The name is the same in ydotool 0.1.x and 1.0.x. */
+#define YDOTOOLD_DEVICE_NAME "ydotoold virtual device"
+
+/* The KEY_A test from linux-key-listener.c: EV_KEY devices with a KEY_A bit. */
 static int open_keyboards(int *fds) {
     DIR *dir = opendir("/dev/input");
     if (!dir) return 0;
@@ -890,8 +895,10 @@ static int open_keyboards(int *fds) {
         if (fd < 0) continue;
 
         unsigned char key_bits[KEY_BITS_SIZE] = { 0 };
+        char name[128] = "";
+        ioctl(fd, EVIOCGNAME(sizeof(name) - 1), name);
         if (ioctl(fd, EVIOCGBIT(EV_KEY, sizeof(key_bits)), key_bits) < 0 ||
-            !test_key_bit(key_bits, KEY_A)) {
+            !test_key_bit(key_bits, KEY_A) || strcmp(name, YDOTOOLD_DEVICE_NAME) == 0) {
             close(fd);
             continue;
         }
@@ -901,22 +908,24 @@ static int open_keyboards(int *fds) {
     return count;
 }
 
-static int evdev_modifier_held(const int *fds, int count) {
+static modifier_state_t evdev_modifier_state(const int *fds, int count) {
     for (int i = 0; i < count; i++) {
         unsigned char keys[KEY_BITS_SIZE] = { 0 };
         if (ioctl(fds[i], EVIOCGKEY(sizeof(keys)), keys) < 0) continue;
         for (size_t k = 0; k < sizeof(modifier_keys) / sizeof(modifier_keys[0]); k++) {
-            if (test_key_bit(keys, modifier_keys[k])) return 1;
+            if (test_key_bit(keys, modifier_keys[k])) return MODIFIERS_HELD;
         }
     }
-    return 0;
+    return MODIFIERS_RELEASED;
 }
 
 /* base_mods only counts keys that are down, so a locked Caps Lock or Num Lock
- * never reads as held. */
-static int x11_modifier_held(Display *display) {
+ * never reads as held. A server whose state cannot be read is unknown, not
+ * released: the caller must know the wait was blind. */
+static modifier_state_t x11_modifier_state(Display *display) {
     XkbStateRec state;
-    return XkbGetState(display, XkbUseCoreKbd, &state) == Success && state.base_mods != 0;
+    if (XkbGetState(display, XkbUseCoreKbd, &state) != Success) return MODIFIERS_UNKNOWN;
+    return state.base_mods != 0 ? MODIFIERS_HELD : MODIFIERS_RELEASED;
 }
 
 /* Mirrors getLinuxSessionInfo() in src/helpers/linuxSession.js. XWayland only
@@ -945,8 +954,9 @@ static modifier_state_t await_modifier_release(int timeout_ms, int *waited_ms) {
     /* Measured on the clock, not by counting sleeps: usleep overshoots under
      * load, and the caller kills a helper that runs past timeout + 1s. */
     long started_at = monotonic_ms();
-    int held;
-    while ((held = display ? x11_modifier_held(display) : evdev_modifier_held(fds, count)) &&
+    modifier_state_t state;
+    while ((state = display ? x11_modifier_state(display) : evdev_modifier_state(fds, count)) ==
+               MODIFIERS_HELD &&
            *waited_ms < timeout_ms) {
         usleep(MODIFIER_POLL_MS * 1000);
         *waited_ms = (int)(monotonic_ms() - started_at);
@@ -955,9 +965,8 @@ static modifier_state_t await_modifier_release(int timeout_ms, int *waited_ms) {
     if (display) XCloseDisplay(display);
     for (int i = 0; i < count; i++) close(fds[i]);
 
-    if (held) return MODIFIERS_HELD;
-    if (*waited_ms > 0) usleep(MODIFIER_SETTLE_MS * 1000);
-    return MODIFIERS_RELEASED;
+    if (state == MODIFIERS_RELEASED && *waited_ms > 0) usleep(MODIFIER_SETTLE_MS * 1000);
+    return state;
 }
 
 int main(int argc, char *argv[]) {

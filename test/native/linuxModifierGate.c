@@ -60,7 +60,7 @@ static int finish_wait(FILE *output, const char *expected_state, int min_waited_
 
 int main(int argc, char **argv)
 {
-  require(argc == 2, "usage: linuxModifierGate <linux-fast-paste>");
+  require(argc >= 2, "usage: linuxModifierGate <linux-fast-paste> [xkb-unavailable.so]");
   display = XOpenDisplay(NULL);
   require(display != NULL, "cannot open display");
   const char *helper = argv[1];
@@ -93,6 +93,14 @@ int main(int argc, char **argv)
   finish_wait(start_wait(helper, 1000), "released", 0, 0);
   set_key(XK_Caps_Lock, True);
   set_key(XK_Caps_Lock, False);
+
+  /* An X server whose XKB state cannot be read is "unknown", never "released":
+   * the caller must know the wait was blind. */
+  if (argc >= 3) {
+    setenv("LD_PRELOAD", argv[2], 1);
+    finish_wait(start_wait(helper, 1000), "unknown", 0, 0);
+    unsetenv("LD_PRELOAD");
+  }
 
   XCloseDisplay(display);
   printf("modifier gate native checks passed\n");

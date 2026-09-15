@@ -707,7 +707,9 @@ class ClipboardManager {
         String(MODIFIER_RELEASE_WAIT_MS),
       ]);
       let stdout = "";
+      let timedOut = false;
       const timeoutId = setTimeout(() => {
+        timedOut = true;
         killProcess(proc, "SIGKILL");
         resolve("unknown");
       }, MODIFIER_RELEASE_WAIT_MS + 1000);
@@ -717,11 +719,23 @@ class ClipboardManager {
       });
 
       proc.on("close", () => {
+        if (timedOut) return;
         clearTimeout(timeoutId);
         const [, state = "unknown", waitedMs = "0"] =
           stdout.match(/^MODIFIERS (released|held|unknown) (\d+)$/m) || [];
         if (state === "held" || Number(waitedMs) > 0) {
           debugLogger.info("Waited for held modifier keys", { state, waitedMs }, "clipboard");
+        }
+        // "unknown" (no /dev/input access on Wayland, or a helper too old for the
+        // flag) means the wait is inert; say so once so support can tell it apart
+        // from a genuine "released".
+        if (state === "unknown" && !this._modifierStateUnreadableLogged) {
+          this._modifierStateUnreadableLogged = true;
+          debugLogger.info(
+            "Modifier key state unreadable, pasting without waiting",
+            { isWayland: getLinuxSessionInfo().isWayland, helperOutput: stdout.trim() },
+            "clipboard"
+          );
         }
         resolve(state);
       });
