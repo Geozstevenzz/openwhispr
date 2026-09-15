@@ -689,7 +689,12 @@ export default function App() {
 
   useLinuxPillInteractivity({
     pillRef: pillPresenceRef,
-    captureWindow: isCommandMenuOpen || toastCount > 0 || anyPanelMounted || isDragging,
+    captureWindow:
+      isCommandMenuOpen ||
+      toastCount > 0 ||
+      anyPanelMounted ||
+      isDragging ||
+      tipCardPlacementActive,
     pillInteractive: pillIsInteractive && !pillVisuallySuppressed,
   });
 
