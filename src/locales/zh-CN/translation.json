@@ -579,22 +579,17 @@
       }
     },
     "permissionGuide": {
-      "start": "引导我完成设置",
-      "progress": "第 {{current}} 步，共 {{total}} 步",
       "return": "返回初始设置",
-      "drag": "拖入权限列表",
-      "missingApp": "如果找不到 OpenWhispr，请点击列表下方的 +，然后选择你正在使用的 OpenWhispr 应用。",
-      "unavailable": "无法打开引导。请使用启用按钮前往系统设置继续操作。",
-      "failed": "无法完成此步骤。请在设置中检查 OpenWhispr 的开关，然后重试。",
-      "microphone": "在隐私与安全性 → 麦克风中打开 OpenWhispr。如果 macOS 要求退出并重新打开应用，设置进度已保存。",
-      "accessibility": "在隐私与安全性 → 辅助功能中打开 OpenWhispr。如果未列出，请添加下方的应用。",
-      "systemAudio": "在隐私与安全性 → 屏幕与系统音频录制中，滚动到仅系统音频录制并打开 OpenWhispr，然后点击重新检查。",
-      "screenContext": "在隐私与安全性 → 屏幕与系统音频录制的屏幕录制列表中打开 OpenWhispr。如果未列出，请添加下方的应用。",
+      "missingApp": "或通过 + 选择应用",
+      "failed": "无法检查访问权限。",
+      "microphone": "在“麦克风”中打开 OpenWhispr。",
+      "accessibility": "将 OpenWhispr 拖入“辅助功能”，然后打开开关。",
+      "systemAudio": "在“仅系统音频录制”中打开 OpenWhispr。",
+      "screenContext": "将 OpenWhispr 拖入“屏幕与系统音频录制”，然后打开开关。",
       "settings": "打开设置",
       "check": "重新检查",
       "restart": "重启 OpenWhispr",
-      "later": "稍后",
-      "restartRequired": "权限已授予。请重启 OpenWhispr 以使用屏幕上下文。设置进度已保存。"
+      "restartRequired": "重新启动 OpenWhispr 以应用屏幕访问权限。"
     }
   },
   "streaming": {

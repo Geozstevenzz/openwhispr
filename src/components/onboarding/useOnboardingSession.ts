@@ -50,9 +50,7 @@ export function useOnboardingSession() {
         ...current,
         permissionGuide,
         screenContextRequested:
-          !permissionGuide || permissionGuide.skipped.includes("screen-context")
-            ? false
-            : current.screenContextRequested,
+          permissionGuide?.current === "screen-context" ? current.screenContextRequested : false,
       }));
     },
     [setSession]

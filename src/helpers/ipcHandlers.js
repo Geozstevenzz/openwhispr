@@ -5881,7 +5881,6 @@ class IPCHandlers {
       if (
         !guide.isOwner(event) ||
         guide.state?.permission !== "system-audio" ||
-        !guide.state.attempted ||
         !this.audioTapManager?.isSupported()
       ) {
         return buildSystemAudioAccess();

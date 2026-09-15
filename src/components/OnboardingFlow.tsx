@@ -286,8 +286,8 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 
   // macOS grants Screen Recording in System Settings, outside the app; the
   // permission hook re-checks on mount and window focus. When the grant lands,
-  // complete the opt-in the Enable click started. Visiting the guide alone
-  // must not enable Screen Context, even when macOS already granted access.
+  // complete the opt-in the Enable click started. A system grant alone must
+  // not enable Screen Context without the user's explicit opt-in.
   useEffect(() => {
     if (!screenRecordingGranted || !agentAllowed || !screenContextAllowed) return;
     if (screenContextRequested) {
@@ -348,6 +348,14 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
       macAccessibilityChecksEnabled: shouldInitializeMacAccessibilityFeatures(currentStepId),
     }
   );
+  const openMicrophoneSettings = async (): Promise<void> => {
+    const result = await window.electronAPI.openMicrophoneSettings?.();
+    if (!result?.success) throw new Error(result?.error ?? "Microphone settings unavailable");
+  };
+  const openAccessibilitySettings = async (): Promise<void> => {
+    const result = await window.electronAPI.openAccessibilitySettings();
+    if (!result.success) throw new Error(result.error);
+  };
   const guideRows: GuidePermission[] = [
     {
       id: "microphone",
@@ -355,28 +363,25 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
       request: async () => {
         await permissions.requestMicPermission();
         const result = await window.electronAPI.checkMicrophoneAccess();
-        if (!result.granted) await permissions.openMicPrivacySettings();
+        if (!result.granted) await openMicrophoneSettings();
       },
       check: async () => {
         const result = await window.electronAPI.checkMicrophoneAccess();
         permissions.setMicPermissionGranted(result.granted);
         return result;
       },
-      openSettings: permissions.openMicPrivacySettings,
+      openSettings: openMicrophoneSettings,
     },
     {
       id: "accessibility",
       granted: permissions.accessibilityPermissionGranted,
-      request: permissions.requestAccessibilityPermission,
+      request: openAccessibilitySettings,
       check: async () => {
         const granted = await window.electronAPI.checkAccessibilityPermission(true);
         permissions.setAccessibilityPermissionGranted(granted);
         return { granted };
       },
-      openSettings: async () => {
-        const result = await window.electronAPI.openAccessibilitySettings();
-        if (!result.success) throw new Error(result.error);
-      },
+      openSettings: openAccessibilitySettings,
     },
   ];
   if (systemAudio.mode === "native")
@@ -403,15 +408,15 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
       id: "screen-context",
       granted: settingsStore.voiceAgentScreenContext && screenRecordingGranted,
       needsRelaunch: screenRecordingNeedsRelaunch,
-      request: enableScreenContext,
+      request: async () => {
+        setScreenContextRequested(true);
+        return requestScreenRecordingAccess();
+      },
+      onGranted: applyScreenContext,
       check: async () => {
         const result = await window.electronAPI.checkScreenRecordingAccess();
         await checkScreenRecording();
-        return {
-          ...result,
-          granted:
-            result.granted && (settingsStore.voiceAgentScreenContext || screenContextRequested),
-        };
+        return result;
       },
       openSettings: async () => {
         const result = await window.electronAPI.openScreenRecordingSettings();

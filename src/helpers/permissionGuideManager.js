@@ -5,16 +5,7 @@ const DevServerManager = require("./devServerManager");
 const debugLogger = require("./debugLogger");
 
 const PERMISSIONS = new Set(["microphone", "accessibility", "system-audio", "screen-context"]);
-const ACTIONS = new Set([
-  "enable",
-  "check",
-  "settings",
-  "back",
-  "next",
-  "skip",
-  "close",
-  "restart",
-]);
+const ACTIONS = new Set(["check", "settings", "close", "restart"]);
 
 function validState(state) {
   return (
@@ -23,14 +14,7 @@ function validState(state) {
     state.sessionId.length > 0 &&
     state.sessionId.length <= 128 &&
     PERMISSIONS.has(state.permission) &&
-    Number.isInteger(state.position) &&
-    Number.isInteger(state.total) &&
-    state.position >= 1 &&
-    state.position <= state.total &&
-    state.total <= 4 &&
-    ["granted", "needsRelaunch", "busy", "attempted", "canGoBack", "error"].every(
-      (key) => typeof state[key] === "boolean"
-    )
+    ["granted", "needsRelaunch", "busy", "error"].every((key) => typeof state[key] === "boolean")
   );
 }
 
@@ -115,7 +99,6 @@ class PermissionGuideManager {
       canDrag:
         !!this.bundlePath &&
         !!this.icon &&
-        this.state.attempted &&
         !this.state.busy &&
         !this.state.granted &&
         ["accessibility", "screen-context"].includes(this.state.permission),
@@ -126,18 +109,10 @@ class PermissionGuideManager {
   setState(state) {
     // Only forward presentation fields; filesystem paths and app identity belong to main.
     this.state = Object.fromEntries(
-      [
-        "sessionId",
-        "permission",
-        "position",
-        "total",
-        "granted",
-        "needsRelaunch",
-        "busy",
-        "attempted",
-        "canGoBack",
-        "error",
-      ].map((key) => [key, state[key]])
+      ["sessionId", "permission", "granted", "needsRelaunch", "busy", "error"].map((key) => [
+        key,
+        state[key],
+      ])
     );
     if (this.window && !this.window.isDestroyed())
       this.window.webContents.send("permission-guide-state-changed", this.snapshot());
@@ -168,8 +143,8 @@ class PermissionGuideManager {
     const owner = this.windowManager.controlPanelWindow;
     this.owner = owner;
     const area = screen.getDisplayMatching(owner.getBounds()).workArea;
-    const width = Math.min(460, area.width);
-    const height = Math.min(390, area.height);
+    const width = Math.min(560, area.width);
+    const height = Math.min(140, area.height);
     const window = new BrowserWindow({
       width,
       height,
@@ -177,6 +152,8 @@ class PermissionGuideManager {
       y: Math.max(area.y, area.y + area.height - height - 24),
       frame: false,
       transparent: true,
+      vibrancy: "hud",
+      visualEffectState: "active",
       backgroundColor: "#00000000",
       show: false,
       alwaysOnTop: true,

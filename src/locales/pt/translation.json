@@ -558,22 +558,17 @@
       }
     },
     "permissionGuide": {
-      "start": "Guiar-me na configuração",
-      "progress": "Etapa {{current}} de {{total}}",
       "return": "Voltar à configuração",
-      "drag": "Arraste para a lista de permissões",
-      "missingApp": "Se OpenWhispr não aparecer, clique em + abaixo da lista e selecione o app OpenWhispr que está usando.",
-      "unavailable": "Não foi possível abrir o guia. Use os botões Ativar para continuar nos Ajustes do Sistema.",
-      "failed": "Não foi possível concluir esta etapa. Confira o botão de OpenWhispr nos Ajustes e tente novamente.",
-      "microphone": "Ative OpenWhispr em Privacidade e Segurança → Microfone. Se o macOS pedir para reabrir o app, seu progresso está salvo.",
-      "accessibility": "Ative OpenWhispr em Privacidade e Segurança → Acessibilidade. Se não aparecer, adicione o app abaixo.",
-      "systemAudio": "Em Privacidade e Segurança → Gravação de Tela e Áudio do Sistema, procure Somente Gravação de Áudio do Sistema e ative OpenWhispr. Depois clique em Verificar novamente.",
-      "screenContext": "Em Privacidade e Segurança → Gravação de Tela e Áudio do Sistema, ative OpenWhispr na lista de gravação de tela. Se não aparecer, adicione o app abaixo.",
+      "missingApp": "Ou selecione o app com +",
+      "failed": "Não foi possível verificar o acesso.",
+      "microphone": "Ative o OpenWhispr em Microfone.",
+      "accessibility": "Arraste o OpenWhispr para Acessibilidade e ative-o.",
+      "systemAudio": "Ative o OpenWhispr em Apenas gravação de áudio do sistema.",
+      "screenContext": "Arraste o OpenWhispr para Gravação de tela e áudio do sistema e ative-o.",
       "settings": "Abrir Ajustes",
       "check": "Verificar novamente",
       "restart": "Reiniciar app",
-      "later": "Mais tarde",
-      "restartRequired": "Permissão concedida. Reinicie OpenWhispr para usar o contexto da tela. Seu progresso está salvo."
+      "restartRequired": "Reinicie o OpenWhispr para aplicar o acesso à tela."
     }
   },
   "streaming": {

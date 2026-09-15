@@ -579,22 +579,17 @@
       }
     },
     "permissionGuide": {
-      "start": "Guiarme en la configuración",
-      "progress": "Paso {{current}} de {{total}}",
       "return": "Volver a la configuración",
-      "drag": "Arrastra a la lista de permisos",
-      "missingApp": "Si falta OpenWhispr, pulsa + debajo de la lista y selecciona la app OpenWhispr que estás usando.",
-      "unavailable": "No se pudo abrir la guía. Usa los botones Activar para continuar en Ajustes del Sistema.",
-      "failed": "No se pudo completar este paso. Comprueba el interruptor de OpenWhispr en Ajustes y vuelve a intentarlo.",
-      "microphone": "Activa OpenWhispr en Privacidad y seguridad → Micrófono. Si macOS pide cerrar y abrir la app, tu progreso queda guardado.",
-      "accessibility": "Activa OpenWhispr en Privacidad y seguridad → Accesibilidad. Si no aparece, añade la app abajo.",
-      "systemAudio": "En Privacidad y seguridad → Grabación de pantalla y audio del sistema, busca Solo grabación de audio del sistema y activa OpenWhispr. Después pulsa Comprobar de nuevo.",
-      "screenContext": "En Privacidad y seguridad → Grabación de pantalla y audio del sistema, activa OpenWhispr en la lista de grabación de pantalla. Si no aparece, añade la app abajo.",
+      "missingApp": "O selecciona la app con +",
+      "failed": "No se pudo comprobar el acceso.",
+      "microphone": "Activa OpenWhispr en Micrófono.",
+      "accessibility": "Arrastra OpenWhispr a Accesibilidad y actívalo.",
+      "systemAudio": "Activa OpenWhispr en Solo grabación de audio del sistema.",
+      "screenContext": "Arrastra OpenWhispr a Grabación de pantalla y audio del sistema y actívalo.",
       "settings": "Abrir Ajustes",
       "check": "Comprobar de nuevo",
       "restart": "Reiniciar app",
-      "later": "Más tarde",
-      "restartRequired": "Permiso concedido. Reinicia OpenWhispr para usar el contexto de pantalla. Tu progreso está guardado."
+      "restartRequired": "Reinicia OpenWhispr para aplicar el acceso a la pantalla."
     }
   },
   "streaming": {

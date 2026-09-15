@@ -157,14 +157,14 @@ test("actions reject stale steps and drag only the packaged application", async 
   setup.listeners.get("permission-guide-action")(setup.event(helper), {
     ...state,
     permission: "microphone",
-    action: "enable",
+    action: "settings",
   });
   assert.equal(setup.owner.webContents.sent.length, 0);
   setup.listeners.get("permission-guide-action")(setup.event(helper), {
     ...state,
-    action: "enable",
+    action: "settings",
   });
-  assert.equal(setup.owner.webContents.sent[0][1].action, "enable");
+  assert.equal(setup.owner.webContents.sent[0][1].action, "settings");
   setup.listeners.get("permission-guide-drag")(setup.event(helper), {
     ...state,
     path: "/private/secret",
@@ -194,4 +194,15 @@ test("a helper closed while loading never reappears", async () => {
   setup.finish();
   assert.equal(await opening, false);
   assert.equal(setup.windows[1].shown, undefined);
+});
+
+test("helper is a compact bottom overlay that does not steal Settings focus", async () => {
+  const setup = fixture();
+  await setup.handlers.get("permission-guide-open")(setup.event(setup.owner), state);
+  const helper = setup.windows[1];
+  assert.equal(helper.options.width, 560);
+  assert.equal(helper.options.height, 140);
+  assert.equal(helper.options.alwaysOnTop, true);
+  assert.equal(helper.focused, undefined);
+  assert.ok(helper.options.y + helper.options.height <= 900);
 });

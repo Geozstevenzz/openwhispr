@@ -22,7 +22,7 @@ import { CompactOnboardingFrame } from "./OnboardingShell";
 
 interface CompactPermissionsStepProps {
   guide?: {
-    start: (permission?: PermissionGuideId) => Promise<void>;
+    start: (permission: PermissionGuideId) => Promise<void>;
     ready: boolean;
     error: boolean;
   };
@@ -50,7 +50,6 @@ interface PermissionRowProps {
   granted: boolean;
   busy: boolean;
   disabled?: boolean;
-  reviewGranted?: boolean;
   iconSrc?: string;
   icon?: ReactNode;
   onRequest: () => Promise<void>;
@@ -63,7 +62,6 @@ function PermissionRow({
   granted,
   busy,
   disabled = false,
-  reviewGranted = false,
   iconSrc,
   icon,
   onRequest,
@@ -104,8 +102,7 @@ function PermissionRow({
 
       <button
         type="button"
-        disabled={busy || disabled || (granted && !reviewGranted)}
-        title={granted && reviewGranted ? t("onboarding.permissionGuide.check") : undefined}
+        disabled={busy || disabled || granted}
         onClick={() => void onRequest()}
         className={`onboarding-pressable inline-flex h-8 min-w-20 shrink-0 items-center justify-center gap-1 rounded-full px-2.5 text-xs font-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--onboarding-accent)_30%,transparent)] disabled:cursor-default ${
           granted
@@ -156,7 +153,7 @@ export default function CompactPermissionsStep({
   const request = async (id: PermissionRowId, action: () => Promise<unknown>) => {
     setBusyPermission(id);
     try {
-      if (platform === "darwin" && guide && !guide.error) await guide.start(id);
+      if (platform === "darwin" && guide?.ready && !guide.error) await guide.start(id);
       else await action();
     } finally {
       setBusyPermission(null);
@@ -183,7 +180,6 @@ export default function CompactPermissionsStep({
             description={t("onboarding.rehaul.permissions.microphoneDescription")}
             granted={permissions.micPermissionGranted}
             busy={busyPermission === "microphone"}
-            disabled={Boolean(guide && !guide.ready)}
             iconSrc={microphoneIcon}
             onRequest={() => request("microphone", permissions.requestMicPermission)}
           />
@@ -195,7 +191,6 @@ export default function CompactPermissionsStep({
                 description={t("onboarding.rehaul.permissions.accessibilityDescription")}
                 granted={permissions.accessibilityPermissionGranted}
                 busy={busyPermission === "accessibility"}
-                disabled={Boolean(guide && !guide.ready)}
                 iconSrc={accessibilityIcon}
                 onRequest={() =>
                   request("accessibility", permissions.requestAccessibilityPermission)
@@ -212,8 +207,7 @@ export default function CompactPermissionsStep({
                 badge={t("onboarding.permissions.optional")}
                 granted={systemAudio.granted}
                 busy={busyPermission === "system-audio"}
-                disabled={!canRequestSystemAudio || Boolean(guide && !guide.ready)}
-                reviewGranted={Boolean(guide?.ready && !guide.error)}
+                disabled={!canRequestSystemAudio}
                 iconSrc={systemAudioIcon}
                 onRequest={() => request("system-audio", systemAudio.request)}
               />
@@ -228,7 +222,6 @@ export default function CompactPermissionsStep({
                 badge={t("onboarding.permissions.optional")}
                 granted={screenContext.enabled && screenContext.granted}
                 busy={busyPermission === "screen-context"}
-                disabled={Boolean(guide && !guide.ready)}
                 icon={
                   <span
                     aria-hidden="true"
@@ -242,24 +235,6 @@ export default function CompactPermissionsStep({
             </>
           )}
         </div>
-
-        {platform === "darwin" && guide && (
-          <div className="mt-3 text-center">
-            <button
-              type="button"
-              disabled={!guide.ready}
-              onClick={() => void guide.start()}
-              className="onboarding-pressable rounded-full px-4 py-2 text-sm font-medium text-[var(--onboarding-accent)] focus-visible:outline-none focus-visible:ring-2 disabled:opacity-50"
-            >
-              {t("onboarding.permissionGuide.start")}
-            </button>
-            {guide.error && (
-              <p role="alert" className="mt-1 text-xs text-warning">
-                {t("onboarding.permissionGuide.unavailable")}
-              </p>
-            )}
-          </div>
-        )}
 
         {platform === "darwin" && screenContext?.enabled && screenContext.needsRelaunch && (
           <p className="mt-2 text-start text-xs leading-4 text-warning/80">

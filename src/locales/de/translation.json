@@ -579,22 +579,17 @@
       }
     },
     "permissionGuide": {
-      "start": "Durch die Einrichtung führen",
-      "progress": "Schritt {{current}} von {{total}}",
       "return": "Zurück zur Einrichtung",
-      "drag": "In die Berechtigungsliste ziehen",
-      "missingApp": "Falls OpenWhispr fehlt, klicke unter der Liste auf + und wähle die gerade verwendete OpenWhispr-App.",
-      "unavailable": "Die Anleitung konnte nicht geöffnet werden. Fahre über die Aktivieren-Schaltflächen in den Systemeinstellungen fort.",
-      "failed": "Dieser Schritt konnte nicht abgeschlossen werden. Prüfe den OpenWhispr-Schalter in den Einstellungen und versuche es erneut.",
-      "microphone": "Aktiviere OpenWhispr unter Datenschutz & Sicherheit → Mikrofon. Falls macOS einen Neustart der App verlangt, bleibt dein Fortschritt gespeichert.",
-      "accessibility": "Aktiviere OpenWhispr unter Datenschutz & Sicherheit → Bedienungshilfen. Falls die App fehlt, füge sie unten hinzu.",
-      "systemAudio": "Scrolle unter Datenschutz & Sicherheit → Bildschirm- & Systemaudioaufnahme zu Nur Systemaudioaufnahme und aktiviere OpenWhispr. Klicke dann auf Erneut prüfen.",
-      "screenContext": "Aktiviere OpenWhispr unter Datenschutz & Sicherheit → Bildschirm- & Systemaudioaufnahme in der Liste für Bildschirmaufnahmen. Falls die App fehlt, füge sie unten hinzu.",
+      "missingApp": "Oder wähle die App über +",
+      "failed": "Zugriff konnte nicht geprüft werden.",
+      "microphone": "Aktiviere OpenWhispr unter Mikrofon.",
+      "accessibility": "Ziehe OpenWhispr in Bedienungshilfen und aktiviere es.",
+      "systemAudio": "Aktiviere OpenWhispr unter „Nur Systemaudioaufnahme“.",
+      "screenContext": "Ziehe OpenWhispr in „Bildschirm- & Systemaudioaufnahme“ und aktiviere es.",
       "settings": "Einstellungen",
       "check": "Erneut prüfen",
       "restart": "App neu starten",
-      "later": "Später",
-      "restartRequired": "Berechtigung erteilt. Starte OpenWhispr neu, um den Bildschirmkontext zu nutzen. Dein Fortschritt ist gespeichert."
+      "restartRequired": "Starte OpenWhispr für den Bildschirmzugriff neu."
     }
   },
   "streaming": {

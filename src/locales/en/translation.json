@@ -579,22 +579,17 @@
       }
     },
     "permissionGuide": {
-      "start": "Guide me through setup",
-      "progress": "Step {{current}} of {{total}}",
       "return": "Return to onboarding",
-      "drag": "Drag into the permission list",
-      "missingApp": "If OpenWhispr is missing, click + below the list and select the OpenWhispr app you are running.",
-      "unavailable": "The guide could not open. Use the Enable buttons to continue in System Settings.",
-      "failed": "Could not complete this step. Open Settings and check OpenWhispr’s toggle, then try again.",
-      "microphone": "In Privacy & Security → Microphone, turn on OpenWhispr. If macOS asks you to quit and reopen, your setup progress is saved.",
-      "accessibility": "In Privacy & Security → Accessibility, turn on OpenWhispr. If it is missing, add the app below.",
-      "systemAudio": "In Privacy & Security → Screen & System Audio Recording, scroll to System Audio Recording Only and turn on OpenWhispr. Then click Check again.",
-      "screenContext": "In Privacy & Security → Screen & System Audio Recording, turn on OpenWhispr in the screen recording list. If it is missing, add the app below.",
+      "missingApp": "Or use + to select the app",
+      "failed": "Could not check access.",
+      "microphone": "Turn on OpenWhispr in Microphone.",
+      "accessibility": "Drag OpenWhispr into Accessibility, then turn it on.",
+      "systemAudio": "Turn on OpenWhispr under System Audio Recording Only.",
+      "screenContext": "Drag OpenWhispr into Screen & System Audio Recording, then turn it on.",
       "settings": "Open Settings",
       "check": "Check again",
       "restart": "Restart OpenWhispr",
-      "later": "Later",
-      "restartRequired": "Permission granted. Restart OpenWhispr to use Screen Context. Your setup progress is saved."
+      "restartRequired": "Restart OpenWhispr to apply screen access."
     }
   },
   "streaming": {

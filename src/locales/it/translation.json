@@ -579,22 +579,17 @@
       }
     },
     "permissionGuide": {
-      "start": "Guidami nella configurazione",
-      "progress": "Passaggio {{current}} di {{total}}",
       "return": "Torna alla configurazione",
-      "drag": "Trascina nell’elenco dei permessi",
-      "missingApp": "Se OpenWhispr non compare, fai clic su + sotto l’elenco e seleziona l’app OpenWhispr in uso.",
-      "unavailable": "Impossibile aprire la guida. Usa i pulsanti Attiva per continuare in Impostazioni di Sistema.",
-      "failed": "Impossibile completare il passaggio. Controlla l’interruttore di OpenWhispr nelle impostazioni e riprova.",
-      "microphone": "Attiva OpenWhispr in Privacy e sicurezza → Microfono. Se macOS chiede di riaprire l’app, i progressi sono salvati.",
-      "accessibility": "Attiva OpenWhispr in Privacy e sicurezza → Accessibilità. Se non compare, aggiungi l’app qui sotto.",
-      "systemAudio": "In Privacy e sicurezza → Registrazione schermo e audio di sistema, scorri fino a Solo registrazione audio di sistema e attiva OpenWhispr. Poi fai clic su Ricontrolla.",
-      "screenContext": "In Privacy e sicurezza → Registrazione schermo e audio di sistema, attiva OpenWhispr nell’elenco per la registrazione dello schermo. Se non compare, aggiungi l’app qui sotto.",
+      "missingApp": "Oppure seleziona l’app con +",
+      "failed": "Impossibile verificare l’accesso.",
+      "microphone": "Attiva OpenWhispr in Microfono.",
+      "accessibility": "Trascina OpenWhispr in Accessibilità e attivalo.",
+      "systemAudio": "Attiva OpenWhispr in Solo registrazione audio di sistema.",
+      "screenContext": "Trascina OpenWhispr in Registrazione schermo e audio di sistema e attivalo.",
       "settings": "Impostazioni",
       "check": "Ricontrolla",
       "restart": "Riavvia l’app",
-      "later": "Più tardi",
-      "restartRequired": "Permesso concesso. Riavvia OpenWhispr per usare il contesto dello schermo. I progressi sono salvati."
+      "restartRequired": "Riavvia OpenWhispr per applicare l’accesso allo schermo."
     }
   },
   "streaming": {

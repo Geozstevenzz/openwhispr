@@ -579,22 +579,17 @@
       }
     },
     "permissionGuide": {
-      "start": "Me guider dans la configuration",
-      "progress": "Étape {{current}} sur {{total}}",
       "return": "Revenir à la configuration",
-      "drag": "Glissez dans la liste des autorisations",
-      "missingApp": "Si OpenWhispr est absent, cliquez sur + sous la liste et sélectionnez l’app OpenWhispr que vous utilisez.",
-      "unavailable": "Impossible d’ouvrir le guide. Utilisez les boutons Activer pour continuer dans Réglages Système.",
-      "failed": "Impossible de terminer cette étape. Vérifiez le bouton OpenWhispr dans les réglages, puis réessayez.",
-      "microphone": "Activez OpenWhispr dans Confidentialité et sécurité → Microphone. Si macOS demande de relancer l’app, votre progression est enregistrée.",
-      "accessibility": "Activez OpenWhispr dans Confidentialité et sécurité → Accessibilité. Si l’app est absente, ajoutez-la ci-dessous.",
-      "systemAudio": "Dans Confidentialité et sécurité → Enregistrement de l’écran et de l’audio du système, descendez jusqu’à Audio du système uniquement et activez OpenWhispr. Cliquez ensuite sur Vérifier.",
-      "screenContext": "Dans Confidentialité et sécurité → Enregistrement de l’écran et de l’audio du système, activez OpenWhispr dans la liste d’enregistrement de l’écran. Si l’app est absente, ajoutez-la ci-dessous.",
+      "missingApp": "Ou sélectionnez l’app avec +",
+      "failed": "Impossible de vérifier l’accès.",
+      "microphone": "Activez OpenWhispr dans Microphone.",
+      "accessibility": "Glissez OpenWhispr dans Accessibilité, puis activez-le.",
+      "systemAudio": "Activez OpenWhispr sous Enregistrement audio du système uniquement.",
+      "screenContext": "Glissez OpenWhispr dans Enregistrement de l’écran et de l’audio système, puis activez-le.",
       "settings": "Réglages",
       "check": "Vérifier",
       "restart": "Relancer l’app",
-      "later": "Plus tard",
-      "restartRequired": "Autorisation accordée. Relancez OpenWhispr pour utiliser le contexte de l’écran. Votre progression est enregistrée."
+      "restartRequired": "Redémarrez OpenWhispr pour appliquer l’accès à l’écran."
     }
   },
   "streaming": {

@@ -4,24 +4,19 @@ import type {
   PermissionGuideProgress,
   PermissionGuideState,
 } from "../../types/permissionGuide";
-import {
-  advancePermissionGuide,
-  reconcilePermissionGuide,
-  startPermissionGuide,
-  type PermissionGuideRow,
-} from "./permissionGuideState";
 
 export interface GuideAccess {
   granted: boolean;
   needsRelaunch?: boolean;
 }
 
-export interface GuidePermission extends PermissionGuideRow {
-  needsRelaunch?: boolean;
+export interface GuidePermission extends GuideAccess {
+  id: PermissionGuideId;
   request: () => Promise<unknown>;
   check: () => Promise<GuideAccess>;
   verify?: () => Promise<GuideAccess>;
   openSettings: () => Promise<unknown>;
+  onGranted?: () => void;
 }
 
 interface ControllerOptions {
@@ -40,81 +35,64 @@ export function createPermissionGuideController(options: ControllerOptions): {
   reconcile: () => Promise<void>;
   dispose: () => void;
 } {
-  let progress: PermissionGuideProgress | null = null;
+  let current: PermissionGuideId | null = null;
   let busy = false;
   let checking = false;
   let error = false;
   let revision = 0;
-  let access: GuideAccess | null = null;
+  let access: GuideAccess = { granted: false };
 
-  const rows = (): GuidePermission[] =>
-    options
-      .rows()
-      .map((row) => (row.id === progress?.current && access ? { ...row, ...access } : row));
-
+  const row = (): GuidePermission | undefined => options.rows().find((item) => item.id === current);
   const close = (): void => {
     revision++;
-    progress = null;
+    current = null;
     busy = false;
-    access = null;
     options.save(null);
     options.close();
   };
+  const valid = (expected: number): boolean => revision === expected && !!row();
 
   const publish = async (): Promise<void> => {
-    if (!progress) return;
-    const available = rows();
-    const row = available.find((item) => item.id === progress.current);
-    if (!row) return;
-    const currentRevision = revision;
-    const opened = await options.publish({
-      sessionId: options.sessionId,
-      permission: progress.current,
-      position: available.indexOf(row) + 1,
-      total: available.length,
-      granted: row.granted,
-      needsRelaunch: row.needsRelaunch ?? false,
-      attempted: progress.attempted.includes(row.id),
-      canGoBack: progress.history.some((id) => available.some((item) => item.id === id)),
-      busy,
-      error,
-    });
-    if (!opened && revision === currentRevision) close();
-  };
-
-  const move = async (next: PermissionGuideProgress | null): Promise<void> => {
-    revision++;
-    busy = false;
-    error = false;
-    access = null;
-    progress = next;
-    if (!next) {
+    if (!current || !row()) return;
+    if (access.granted && !access.needsRelaunch) {
       close();
       return;
     }
-    options.save(next);
-    await publish();
+    const expected = revision;
+    const opened = await options.publish({
+      sessionId: options.sessionId,
+      permission: current,
+      granted: access.granted,
+      needsRelaunch: access.needsRelaunch ?? false,
+      busy,
+      error,
+    });
+    if (!opened && valid(expected)) close();
+  };
+
+  const accept = (result: GuideAccess, expected: number): void => {
+    if (!valid(expected)) return;
+    access = result;
+    // Apply feature consent only while this explicit request is still active and eligible.
+    if (result.granted) row()?.onGranted?.();
   };
 
   const reconcile = async (): Promise<void> => {
-    const next = reconcilePermissionGuide(progress, rows());
-    if (next !== progress) await move(next);
+    if (current && !row()) close();
   };
 
   const refresh = async (): Promise<void> => {
     await reconcile();
-    if (!progress || busy || checking || progress.current === "system-audio") return;
-    const row = rows().find((item) => item.id === progress.current);
-    if (!row) return;
-    const currentRevision = revision;
+    const permission = row();
+    if (!permission || busy || checking || current === "system-audio") return;
+    const expected = revision;
     checking = true;
     try {
-      const result = await row.check();
-      if (revision !== currentRevision) return;
-      access = result;
+      accept(await permission.check(), expected);
+      if (!valid(expected)) return;
       await publish();
     } catch {
-      if (revision === currentRevision) {
+      if (valid(expected)) {
         error = true;
         await publish();
       }
@@ -123,71 +101,64 @@ export function createPermissionGuideController(options: ControllerOptions): {
     }
   };
 
+  const start = async (
+    requested?: PermissionGuideId,
+    saved?: PermissionGuideProgress
+  ): Promise<void> => {
+    if (busy) return;
+    const permission = options.rows().find((item) => item.id === (saved?.current ?? requested));
+    if (!permission) {
+      if (saved) close();
+      return;
+    }
+    if (current) options.close();
+    current = permission.id;
+    access = { granted: false };
+    busy = true;
+    error = false;
+    const expected = ++revision;
+    // Save before the native request; macOS can restart the app while applying access.
+    options.save({ current });
+    try {
+      // The onboarding Enable button is the consent action. Never put a helper in front
+      // of a native prompt or require a second click before opening System Settings.
+      if (!saved) await permission.request();
+      if (!valid(expected)) return;
+      accept(await row()!.check(), expected);
+    } catch {
+      if (valid(expected)) error = true;
+    } finally {
+      if (valid(expected)) {
+        busy = false;
+        await publish();
+      }
+    }
+  };
+
   const act = async (message: PermissionGuideAction): Promise<void> => {
-    if (
-      !progress ||
-      message.sessionId !== options.sessionId ||
-      message.permission !== progress.current
-    )
+    if (!current || message.sessionId !== options.sessionId || message.permission !== current)
       return;
     if (message.action === "close") {
       close();
       return;
     }
-    if (busy) return;
-    await reconcile();
-    if (!progress || busy || message.permission !== progress.current) return;
-    const row = rows().find((item) => item.id === progress.current);
-    if (!row) return;
-    if (["back", "next", "skip"].includes(message.action)) {
-      const next = advancePermissionGuide(
-        progress,
-        rows(),
-        message.action as "back" | "next" | "skip"
-      );
-      if (next !== progress) await move(next);
-      return;
-    }
-    if (message.action === "restart" && !row.needsRelaunch) return;
-    if (message.action === "check" && !row.granted && !progress.attempted.includes(row.id)) return;
+    const permission = row();
+    if (!permission || busy) return;
+    if (message.action === "restart" && !access.needsRelaunch) return;
+    if (message.action === "check" && current !== "system-audio" && !error) return;
     busy = true;
     error = false;
-    const currentRevision = ++revision;
-    if (message.action === "enable" || message.action === "check") {
-      progress = { ...progress, attempted: [...new Set([...progress.attempted, row.id])] };
-    }
-    // Persist before native requests: macOS may quit and reopen the app to apply a grant.
-    options.save(progress);
+    const expected = ++revision;
     try {
       await publish();
-      if (revision !== currentRevision) return;
-      switch (message.action) {
-        case "enable":
-          await row.request();
-          break;
-        case "settings":
-          await row.openSettings();
-          break;
-        case "check": {
-          const result = await (row.verify ?? row.check)();
-          if (revision !== currentRevision) return;
-          access = result;
-          break;
-        }
-        case "restart":
-          await options.restart();
-          break;
-      }
-      if (revision !== currentRevision) return;
-      if (message.action !== "check") {
-        const result = await row.check();
-        if (revision !== currentRevision) return;
-        access = result;
-      }
+      if (!valid(expected)) return;
+      if (message.action === "restart") await options.restart();
+      else if (message.action === "settings") await permission.openSettings();
+      else accept(await (permission.verify ?? permission.check)(), expected);
     } catch {
-      if (revision === currentRevision) error = true;
+      if (valid(expected)) error = true;
     } finally {
-      if (revision === currentRevision) {
+      if (valid(expected)) {
         busy = false;
         await publish();
       }
@@ -195,19 +166,13 @@ export function createPermissionGuideController(options: ControllerOptions): {
   };
 
   return {
-    start: async (requested, saved): Promise<void> => {
-      await move(
-        saved
-          ? reconcilePermissionGuide(saved, options.rows())
-          : startPermissionGuide(options.rows(), requested)
-      );
-    },
+    start,
     act,
     refresh,
     reconcile,
     dispose: (): void => {
       revision++;
-      progress = null;
+      current = null;
       busy = false;
     },
   };

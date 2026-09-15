@@ -30,9 +30,6 @@ test("permission intent persists before React commits and explicit dismissal cle
   });
   const progress = {
     current: "screen-context",
-    history: [],
-    skipped: [],
-    attempted: ["screen-context"],
   };
   await React.act(async () => {
     session.setPermissionGuide(progress);
@@ -42,6 +39,12 @@ test("permission intent persists before React commits and explicit dismissal cle
     assert.deepEqual(saved.permissionGuide, progress);
   });
   await React.act(async () => {
+    session.setPermissionGuide({ current: "accessibility" });
+  });
+  assert.equal(JSON.parse(storage.getItem("onboardingSessionV2")).screenContextRequested, false);
+  await React.act(async () => {
+    session.setPermissionGuide(progress);
+    session.setScreenContextRequested(true);
     session.setPermissionGuide(null);
   });
   assert.equal(JSON.parse(storage.getItem("onboardingSessionV2")).screenContextRequested, false);

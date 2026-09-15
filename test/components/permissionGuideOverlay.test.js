@@ -40,13 +40,17 @@ test("guide exposes native drag only for supported steps and keeps a keyboard al
   const drag = render({});
   assert.match(drag, /draggable="true"/);
   assert.match(drag, /onboarding.permissionGuide.missingApp/);
-  assert.match(drag, /onboarding.permissionGuide.settings/);
+  assert.doesNotMatch(
+    drag,
+    /onboarding.permissionGuide.progress|onboarding.permissionGuide.start|common.next|common.skip|<h1/
+  );
+  assert.doesNotMatch(drag, /onboarding.rehaul.permissions.enable|Description|description/);
   const microphone = render({ permission: "microphone", canDrag: false });
   assert.doesNotMatch(microphone, /draggable="true"/);
   assert.doesNotMatch(microphone, /common.skip/);
   const restart = render({ permission: "screen-context", granted: true, needsRelaunch: true });
   assert.match(restart, /onboarding.permissionGuide.restart/);
-  assert.match(restart, /onboarding.permissionGuide.later/);
+  assert.match(restart, /onboarding.permissionGuide.return/);
   const cachedAudio = render({ permission: "system-audio", granted: true, attempted: false });
   assert.match(cachedAudio, /onboarding.permissionGuide.check/);
 });
