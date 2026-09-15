@@ -156,6 +156,7 @@ jobs:
           VITE_OPENWHISPR_OAUTH_CALLBACK_URL: ${{ vars.VITE_OPENWHISPR_OAUTH_CALLBACK_URL }}
 
       - name: Upload Artifacts
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: linux-build
@@ -273,6 +274,7 @@ jobs:
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
 
       - name: Upload Artifacts
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: windows-build
@@ -416,6 +418,7 @@ jobs:
           node scripts/verify-macos-parakeet.js "$APP_PATH"
 
       - name: Upload Artifacts
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: macos-${{ matrix.arch }}-build
