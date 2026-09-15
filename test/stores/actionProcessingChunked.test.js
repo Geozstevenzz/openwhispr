@@ -103,12 +103,12 @@ const run = (store, noteId, material, options = {}, action = ACTION) =>
     LABELS
   );
 
-test("material that fits is one request with today's prompt, after one budget read", async (t) => {
+test("material that fits is one request with today's prompt and no budget read", async (t) => {
   const { store, calls, updates, budgetCalls } = await loadStore(t, { budget: BIG_BUDGET });
   run(store, 1, longMaterial(20));
   await waitFor(() => updates.length > 0, "save");
   assert.equal(calls.length, 1);
-  assert.deepEqual(budgetCalls, ["qwen3.5-9b-q4_k_m"]);
+  assert.deepEqual(budgetCalls, []);
   assert.ok(calls[0].text.includes("## Meeting Transcript"));
   assert.ok(calls[0].config.systemPrompt.endsWith("Summarize the meeting."));
   assert.equal(calls[0].config.maxTokens, 4096);
@@ -167,11 +167,16 @@ test("refused material is summarised in parts, then merged with the action promp
   );
 });
 
-test("a failed budget read falls back to today's single request", async (t) => {
-  const { store, calls, updates } = await loadStore(t, { budget: new Error("ipc down") });
+test("a refusal whose budget cannot be read is reported without splitting", async (t) => {
+  const { store, calls, updates } = await loadStore(t, {
+    budget: new Error("ipc down"),
+    failFirst: true,
+  });
   run(store, 4, longMaterial(400));
-  await waitFor(() => updates.length > 0, "save");
+  await waitForResult(store, updates);
+  assert.equal(updates.length, 0);
   assert.equal(calls.length, 1);
+  assert.equal(store.consumeErrorEvents()[0].message, "too big");
 });
 
 test("a single request refused as CONTEXT_TOO_LARGE falls through to chunking", async (t) => {
@@ -478,4 +483,61 @@ test("the merge preserves a follow-up email action without imposing exhaustive n
   const prompt = calls.at(-1).config.systemPrompt;
   assert.ok(prompt.includes(email.prompt));
   assert.doesNotMatch(prompt, /Completeness outranks brevity|as long as that requires/);
+});
+
+test("a local model reached through dictation cleanup is summarised in parts too", async (t) => {
+  // Note formatting on its default mode follows dictation cleanup when the user
+  // is not on OpenWhispr Cloud, so a local cleanup model answers the request.
+  const { store, calls, updates, budgetCalls } = await loadStore(t, {
+    mode: "openwhispr",
+    failFirst: true,
+  });
+  run(store, 22, longMaterial(400));
+  await waitForResult(store, updates);
+  assert.equal(updates.length, 1);
+  assert.deepEqual(budgetCalls, ["qwen3.5-9b-q4_k_m"]);
+  const parts = calls.slice(1, -1);
+  assert.ok(parts.length >= 2, `expected several parts, got ${parts.length}`);
+  for (const part of parts) assert.match(part.config.systemPrompt, /this part only/i);
+});
+
+test("re-running a note right after cancelling it never revives the cancelled run", async (t) => {
+  const { store, calls, updates } = await loadStore(t, {
+    failFirst: true,
+    // The second run's reply lands after the cancelled run has unwound, so a
+    // cancelled run that cleared the note's slot would stop the new one saving.
+    processText: (text) =>
+      text.includes("Bob: the second run")
+        ? new Promise((resolve) => setTimeout(() => resolve("Second run notes"), 50))
+        : "Working notes",
+  });
+  globalThis.__cancelAfter = {
+    after: 2,
+    cancel: () => {
+      store.cancelAction(21);
+      run(store, 21, { notes: "", meetingContext: "", transcript: "Bob: the second run." });
+    },
+  };
+  run(store, 21, longMaterial(400));
+  await waitFor(() => updates.length > 0, "the second run's save");
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.deepEqual(
+    updates.map((update) => update.payload.enhanced_content),
+    ["Second run notes"]
+  );
+  assert.equal(
+    calls.filter((call) => call.text.includes("Alice: we agreed")).length,
+    2,
+    "the cancelled run sends nothing after the part already in flight"
+  );
+});
+
+test("the whole-note request and the merge refuse a reply the window clipped", async (t) => {
+  const { store, calls, updates } = await loadStore(t, { failFirst: true });
+  run(store, 23, longMaterial(400));
+  await waitForResult(store, updates);
+  assert.equal(updates.length, 1);
+  assert.equal(calls[0].config.refuseClippedByWindow, true);
+  assert.equal(calls.at(-1).config.refuseClippedByWindow, true);
+  assert.equal(calls.at(-1).config.maxTokens, 4096);
 });

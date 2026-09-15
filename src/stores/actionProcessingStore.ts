@@ -72,7 +72,9 @@ interface ActionProcessingStoreState {
   errorEvents: ActionErrorEvent[];
 }
 
-const cancelledFlags = new Map<number, boolean>();
+// The run a note's in-flight action belongs to. A per-note flag would be reset
+// by a new run on the same note and revive the run the user just cancelled.
+const activeRuns = new Map<number, object>();
 const processingFlags = new Map<number, boolean>();
 const successTimers = new Map<number, NodeJS.Timeout>();
 
@@ -143,7 +145,7 @@ interface EnhancementRun {
   systemPrompt: string;
   requestConfig: ReasoningConfig;
   options: RunActionOptions;
-  isLocalRoute: boolean;
+  isCancelled: () => boolean;
 }
 
 interface LocalContextBudget {
@@ -153,8 +155,6 @@ interface LocalContextBudget {
 
 const isContextTooLarge = (error: unknown): boolean =>
   (error as { code?: string } | null)?.code === "CONTEXT_TOO_LARGE";
-
-const isCancelled = (noteId: number) => cancelledFlags.get(noteId) === true;
 
 async function readLocalContextBudget(modelId: string): Promise<LocalContextBudget | null> {
   try {
@@ -178,25 +178,29 @@ function tooLongForModel(modelName: string): LocalInferenceError {
 }
 
 /**
- * One request when the material fits the local window (or on any route the
- * budget does not apply to); parts-then-merge when it does not (#2142).
+ * One request on every route; parts-then-merge only when a local model refuses
+ * the material as too large for its window (#2142).
  */
 async function runEnhancement(run: EnhancementRun): Promise<string> {
-  const single = (): Promise<string> =>
-    reasoningService.processText(run.noteContent, run.modelId, null, run.requestConfig);
-  if (!run.isLocalRoute) return single();
-
-  const budget = await readLocalContextBudget(run.modelId);
-  if (!budget) return single();
-
+  let refusal: unknown;
   try {
-    // The main-process preflight measures the prompt and can grant a smaller
-    // reply. A conservative estimate must not replace a request it can serve.
-    return await single();
+    // The main-process preflight measures the prompt exactly, so a conservative
+    // renderer estimate never replaces a request the model can serve.
+    return await reasoningService.processText(
+      run.noteContent,
+      run.modelId,
+      null,
+      run.requestConfig
+    );
   } catch (error) {
     if (!isContextTooLarge(error)) throw error;
+    refusal = error;
   }
-  if (isCancelled(run.noteId)) throw new Error("cancelled");
+  // Only a local model refuses as CONTEXT_TOO_LARGE, so the refusal identifies
+  // the route however note formatting reached it (its own mode or cleanup's).
+  const budget = await readLocalContextBudget(run.modelId);
+  if (!budget) throw refusal;
+  if (run.isCancelled()) throw new Error("cancelled");
   return runInParts(run, budget);
 }
 
@@ -234,7 +238,7 @@ async function runInParts(run: EnhancementRun, budget: LocalContextBudget): Prom
     preserveSpeakerLabels = false,
     depth = 0
   ): Promise<string> => {
-    if (isCancelled(run.noteId)) throw new Error("cancelled");
+    if (run.isCancelled()) throw new Error("cancelled");
     const content = [context, `## ${heading}\n${text}`].filter(Boolean).join("\n\n");
     try {
       return await reasoningService.processText(content, run.modelId, null, partConfig);
@@ -253,7 +257,7 @@ async function runInParts(run: EnhancementRun, budget: LocalContextBudget): Prom
   const materialLabel = hasTranscript ? "Meeting Transcript" : "Notes";
   const partNotes: string[] = [];
   for (let index = 0; index < chunks.length; index += 1) {
-    if (isCancelled(run.noteId)) throw new Error("cancelled");
+    if (run.isCancelled()) throw new Error("cancelled");
     setNoteState(run.noteId, { progress: { step: index + 1, total } });
     partNotes.push(
       await summarisePart(
@@ -267,7 +271,7 @@ async function runInParts(run: EnhancementRun, budget: LocalContextBudget): Prom
   const mergeSystemPrompt = run.systemPrompt + MERGE_ADDENDUM;
   let sections = partNotes;
   for (let round = 0; round <= MAX_REDUCE_ROUNDS; round += 1) {
-    if (isCancelled(run.noteId)) throw new Error("cancelled");
+    if (run.isCancelled()) throw new Error("cancelled");
     setNoteState(run.noteId, { progress: { step: total, total } });
     const mergeContent = [
       manualNotes,
@@ -291,7 +295,7 @@ async function runInParts(run: EnhancementRun, budget: LocalContextBudget): Prom
     const groups = planNoteChunks(sections.join("\n\n"), chunkBudget);
     const consolidated: string[] = [];
     for (let index = 0; index < groups.length; index += 1) {
-      if (isCancelled(run.noteId)) throw new Error("cancelled");
+      if (run.isCancelled()) throw new Error("cancelled");
       consolidated.push(
         await summarisePart(groups[index], `Working notes (part ${index + 1} of ${groups.length})`)
       );
@@ -347,7 +351,9 @@ export function runBackgroundAction(
     return;
   }
 
-  cancelledFlags.set(noteId, false);
+  const runToken = {};
+  activeRuns.set(noteId, runToken);
+  const isCancelled = () => activeRuns.get(noteId) !== runToken;
   processingFlags.set(noteId, true);
   setNoteState(noteId, { status: "processing", actionName: action.name, progress: null });
 
@@ -373,6 +379,10 @@ export function runBackgroundAction(
         maxTokens: NOTE_OUTPUT_MAX_TOKENS,
         temperature: 0.3,
         disableThinking: settings.noteFormattingDisableThinking,
+        // A local model that shrinks the reply to fit the prompt refuses a reply
+        // that fills the shrunken allowance, so the note is summarised in parts
+        // rather than saved clipped. Other routes ignore the flag.
+        refuseClippedByWindow: true,
         ...providerOverrides,
       };
       const enhanced = await runEnhancement({
@@ -382,7 +392,7 @@ export function runBackgroundAction(
         systemPrompt,
         requestConfig,
         options,
-        isLocalRoute: !options.isCloudMode && noteFormatting.mode === "local",
+        isCancelled,
       });
 
       // IPC-bridged providers relay whatever the model returned; a blank
@@ -391,7 +401,7 @@ export function runBackgroundAction(
         throw new Error("Model returned no text");
       }
 
-      if (cancelledFlags.get(noteId)) return;
+      if (isCancelled()) return;
 
       let title: string | undefined;
       if (options.allowTitleGeneration && getSettings().autoGenerateNoteTitle) {
@@ -399,7 +409,7 @@ export function runBackgroundAction(
         if (generated) title = generated;
       }
 
-      if (cancelledFlags.get(noteId)) return;
+      if (isCancelled()) return;
 
       const updates: Record<string, string> = {
         enhanced_content: options.knownPeople?.length
@@ -420,7 +430,7 @@ export function runBackgroundAction(
       }, 600);
       successTimers.set(noteId, timer);
     } catch (err) {
-      if (cancelledFlags.get(noteId)) return;
+      if (isCancelled()) return;
       processingFlags.set(noteId, false);
       clearNoteState(noteId);
       const message = err instanceof Error ? err.message : labels.actionFailed;
@@ -430,14 +440,14 @@ export function runBackgroundAction(
       };
       pushErrorEvent({ noteId, message, messageKey, messageParams });
     } finally {
-      cancelledFlags.delete(noteId);
+      if (activeRuns.get(noteId) === runToken) activeRuns.delete(noteId);
     }
   })();
 }
 
 /** Soft cancel: the HTTP request continues but the result is discarded. */
 export function cancelAction(noteId: number): void {
-  cancelledFlags.set(noteId, true);
+  activeRuns.delete(noteId);
   processingFlags.set(noteId, false);
   const timer = successTimers.get(noteId);
   if (timer) {
