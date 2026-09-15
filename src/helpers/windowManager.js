@@ -707,7 +707,7 @@ class WindowManager {
     }
   }
 
-  forceStopMacCompoundPush(reason = "manual") {
+  forceStopMacCompoundPush(reason) {
     if (!this.macCompoundPushState) {
       return;
     }

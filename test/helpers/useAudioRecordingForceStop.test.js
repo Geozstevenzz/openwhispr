@@ -193,6 +193,9 @@ for (const reason of ["timeout", "reset"]) {
     const [toast] = errorToasts(harness);
     assert.ok(toast, "the transcript is surfaced, not dropped");
     assert.equal(toast.description, "hooks.audioRecording.pushForceStopped.description");
+    // A five-minute dictation deserves more than the length-derived 4s default
+    // before its only in-pill recovery disappears.
+    assert.equal(toast.duration, 8000);
     // A batch transcription has no streaming text, so the pill's transcript
     // argument is the only thing that can produce this action — and it is the
     // sole in-app recovery when the clipboard write is the part that failed.
@@ -250,10 +253,10 @@ test("the latch does not leak into the next dictation", async (t) => {
 test("a reason that is not a forced key-down stop does not latch", async (t) => {
   const harness = await mountHarness(t);
 
-  await harness.forceStop("manual");
+  await harness.forceStop("unrecognised");
   await harness.complete();
 
-  assert.equal(harness.pastes.length, 1, "a manual stop still pastes");
+  assert.equal(harness.pastes.length, 1, "an unrecognised reason still pastes");
   assert.deepEqual(harness.clipboardWrites, []);
   assert.deepEqual(errorToasts(harness), []);
 });
@@ -282,5 +285,6 @@ for (const [label, writeClipboard] of [
       toast.description,
       "hooks.audioRecording.pushForceStopped.descriptionClipboardFailed"
     );
+    assert.equal(toast.duration, 8000, "the transcript action is the only recovery here");
   });
 }

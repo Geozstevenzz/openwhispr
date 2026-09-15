@@ -83,6 +83,12 @@ test.after(() => {
   Module._load = originalLoad;
 });
 
+// forceStopMacCompoundPush is driven by the compound push ceiling alone; a
+// renderer-initiated force stop was never exposed through preload.
+test("no renderer-facing force-stop-dictation channel is registered", () => {
+  assert.equal(handlers.has("force-stop-dictation"), false);
+});
+
 test("paste-text reports an onboarding demo no-op without invoking the clipboard", async () => {
   let pasteCalls = 0;
   target.windowManager = { isOnboardingDemoActive: () => true };

@@ -1750,6 +1750,9 @@ async function startApp() {
 
     nativeKeyManager.on("error", (error) => {
       debugLogger.warn("[Push-to-Talk] Native key listener error", { error: error.message });
+      // The listener was the only source of the release that ends a push; end
+      // it as a forced stop now rather than letting it run to the ceiling.
+      windowManager.resetWindowsPushState();
       if (isWindows && isLiveWindow(windowManager.mainWindow)) {
         windowManager.mainWindow.webContents.send("windows-ptt-unavailable", {
           reason: "error",

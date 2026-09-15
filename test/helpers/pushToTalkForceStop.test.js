@@ -1,6 +1,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
 const Module = require("node:module");
+const path = require("node:path");
 
 // WindowManager pulls in electron and its sibling managers at require time; only
 // the pieces the push-to-talk state machine touches need to behave.
@@ -194,4 +196,19 @@ test("a settings-driven reset reports a forced stop, not a release", (t) => {
     "stop-dictation",
   ]);
   assert.deepEqual(sent.at(-2).payload, { reason: "reset" });
+});
+
+// The native listener is the only source of the release that ends a push. When
+// it dies mid-hold the push would otherwise run on to the 5-minute ceiling with
+// nobody able to stop it. main.js owns that wiring, so pin it at the source.
+test("a lost native key listener force-stops the push it owned", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../../main.js"), "utf8");
+  const handler = source.match(
+    /nativeKeyManager\.on\("error", \(error\) => \{([\s\S]*?)\n {4}\}\);/
+  );
+  assert.ok(handler, "native key listener error handler is present");
+  assert.ok(
+    handler[1].includes("windowManager.resetWindowsPushState()"),
+    "an active push is force-stopped when its listener is gone"
+  );
 });

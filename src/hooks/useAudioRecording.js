@@ -35,6 +35,9 @@ const SELECTION_EDIT_DETAIL_KEY_BY_CODE = {
   paste_failed: "pasteFailed",
 };
 const COMPANION_AUDIO_LEVEL_INTERVAL_MS = 80;
+// Dictation-error pills whose actions are the user's recovery path stay up
+// longer than the length-derived default.
+const RECOVERY_PILL_DURATION_MS = 8000;
 
 export const useAudioRecording = (toast, options = {}) => {
   const { t } = useTranslation();
@@ -434,7 +437,7 @@ export const useAudioRecording = (toast, options = {}) => {
           showDictationError({
             title,
             description,
-            duration: error?.code === "AUTH_EXPIRED" ? 8000 : undefined,
+            duration: error?.code === "AUTH_EXPIRED" ? RECOVERY_PILL_DURATION_MS : undefined,
           });
         }
         if (getSettings().pauseMediaOnDictation) {
@@ -627,6 +630,7 @@ export const useAudioRecording = (toast, options = {}) => {
                   : "hooks.audioRecording.pushForceStopped.descriptionClipboardFailed"
               ),
               transcript: result.rawText ?? result.text,
+              duration: RECOVERY_PILL_DURATION_MS,
             });
           } else if (autoPasteEnabled && !result.assistantConversation) {
             const pasteStart = performance.now();

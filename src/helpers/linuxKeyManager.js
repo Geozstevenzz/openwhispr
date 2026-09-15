@@ -10,13 +10,22 @@ const debugLogger = require("./debugLogger");
 // MAX_PUSH_DURATION_MS in windowManager, which owns push state; enforcing one here
 // too would end the push by synthesizing a release, making a forced stop
 // indistinguishable from the user letting go.
+//
+// The listener is also the only source of that release, so one that dies is
+// respawned with backoff; otherwise push-to-talk stays dead until the hotkey
+// changes, with nothing to say so.
+const RESPAWN_BASE_MS = 5 * 1000;
+const RESPAWN_MAX_MS = 60 * 1000;
+
 class LinuxKeyManager extends EventEmitter {
   constructor() {
     super();
     this.isSupported = process.platform === "linux";
     this.hasReportedError = false;
     this.hasReportedUnavailable = false;
+    this.desiredKeys = new Set();
     this.listeners = new Map(); // key string -> { child }
+    this.respawns = new Map(); // key string -> { timer, attempts }
   }
 
   /**
@@ -26,9 +35,13 @@ class LinuxKeyManager extends EventEmitter {
   setKeys(keys) {
     if (!this.isSupported) return;
     const desired = new Set(keys.filter(Boolean));
+    this.desiredKeys = desired;
 
     for (const key of [...this.listeners.keys()]) {
       if (!desired.has(key)) this._stopKey(key);
+    }
+    for (const key of [...this.respawns.keys()]) {
+      if (!desired.has(key)) this._cancelRespawn(key);
     }
 
     if (desired.size === 0) return;
@@ -60,6 +73,11 @@ class LinuxKeyManager extends EventEmitter {
     this.hasReportedError = false;
     const entry = { child };
     this.listeners.set(key, entry);
+    const respawn = this.respawns.get(key);
+    if (respawn?.timer) {
+      clearTimeout(respawn.timer);
+      respawn.timer = null;
+    }
     debugLogger.debug("[LinuxKeyManager] Starting key listener", { key, binaryPath: listenerPath });
 
     let lineBuffer = "";
@@ -102,7 +120,26 @@ class LinuxKeyManager extends EventEmitter {
           )
         );
       }
+      if (wasTracked) this._scheduleRespawn(key);
     });
+  }
+
+  _scheduleRespawn(key) {
+    const respawn = this.respawns.get(key) ?? { timer: null, attempts: 0 };
+    const delayMs = Math.min(RESPAWN_BASE_MS * 2 ** respawn.attempts, RESPAWN_MAX_MS);
+    respawn.attempts++;
+    debugLogger.info("[LinuxKeyManager] Retrying the key listener", { key, delayMs });
+    respawn.timer = setTimeout(() => {
+      respawn.timer = null;
+      this.setKeys([...this.desiredKeys]);
+    }, delayMs);
+    this.respawns.set(key, respawn);
+  }
+
+  _cancelRespawn(key) {
+    const respawn = this.respawns.get(key);
+    if (respawn?.timer) clearTimeout(respawn.timer);
+    this.respawns.delete(key);
   }
 
   _stopKey(key) {
@@ -120,6 +157,7 @@ class LinuxKeyManager extends EventEmitter {
   handleOutputLine(line, key) {
     if (line === "READY") {
       debugLogger.debug("[LinuxKeyManager] Listener ready", { key });
+      this.respawns.delete(key);
       this.emit("ready", key);
       return;
     }
@@ -147,6 +185,7 @@ class LinuxKeyManager extends EventEmitter {
 
   stop() {
     for (const key of [...this.listeners.keys()]) this._stopKey(key);
+    for (const key of [...this.respawns.keys()]) this._cancelRespawn(key);
   }
 
   isAvailable() {

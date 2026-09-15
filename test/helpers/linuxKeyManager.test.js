@@ -133,3 +133,79 @@ test("dropping a key kills its listener process and stops tracking it", () => {
   assert.equal(child.killed, true);
   assert.equal(manager.listeners.size, 0);
 });
+
+// A listener that dies takes the only source of KEY_UP with it. Until it is
+// back, push-to-talk is dead for the rest of the session with nothing to say so.
+test("an unexpected listener exit respawns it after a short delay", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  t.after(() => t.mock.timers.reset());
+
+  const { LinuxKeyManager, spawnCalls } = loadManager();
+  const manager = new LinuxKeyManager();
+  manager.setKeys(["Control+Space"]);
+  manager.on("error", () => undefined);
+
+  spawnCalls[0].child.emit("exit", null, "SIGSEGV");
+
+  t.mock.timers.tick(4_999);
+  assert.equal(spawnCalls.length, 1, "no respawn before the delay");
+  t.mock.timers.tick(1);
+  assert.equal(spawnCalls.length, 2, "respawned once the delay elapses");
+  assert.deepEqual(spawnCalls[1].args, ["Control+Space"]);
+  assert.equal(manager.listeners.get("Control+Space").child, spawnCalls[1].child);
+});
+
+test("repeated crashes back off up to a minute, and a ready listener resets the delay", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  t.after(() => t.mock.timers.reset());
+
+  const { LinuxKeyManager, spawnCalls } = loadManager();
+  const manager = new LinuxKeyManager();
+  manager.setKeys(["F8"]);
+  manager.on("error", () => undefined);
+
+  for (const delay of [5_000, 10_000, 20_000, 40_000, 60_000, 60_000]) {
+    const before = spawnCalls.length;
+    spawnCalls.at(-1).child.emit("exit", null, "SIGSEGV");
+    t.mock.timers.tick(delay - 1);
+    assert.equal(spawnCalls.length, before, `no respawn before ${delay}ms`);
+    t.mock.timers.tick(1);
+    assert.equal(spawnCalls.length, before + 1, `respawned at ${delay}ms`);
+  }
+
+  spawnCalls.at(-1).child.stdout.emit("data", "READY\n");
+  const before = spawnCalls.length;
+  spawnCalls.at(-1).child.emit("exit", null, "SIGSEGV");
+  t.mock.timers.tick(5_000);
+  assert.equal(spawnCalls.length, before + 1, "a listener that came up resets the backoff");
+});
+
+test("dropping a key cancels its pending respawn", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  t.after(() => t.mock.timers.reset());
+
+  const { LinuxKeyManager, spawnCalls } = loadManager();
+  const manager = new LinuxKeyManager();
+  manager.setKeys(["Control+Space"]);
+  manager.on("error", () => undefined);
+
+  spawnCalls[0].child.emit("exit", null, "SIGSEGV");
+  manager.setKeys([]);
+  t.mock.timers.tick(120_000);
+
+  assert.equal(spawnCalls.length, 1, "a key no longer wanted is not respawned");
+  assert.equal(manager.listeners.size, 0);
+});
+
+test("an intentional stop never respawns", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  t.after(() => t.mock.timers.reset());
+
+  const { manager, child } = startWatching();
+
+  manager.stop();
+  child.emit("exit", null, "SIGTERM");
+  t.mock.timers.tick(120_000);
+
+  assert.equal(manager.listeners.size, 0);
+});

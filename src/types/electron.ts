@@ -1168,7 +1168,7 @@ declare global {
       onCancelDictationPreparation?: (callback: () => void) => () => void;
       onCancelDictation?: (callback: () => void) => () => void;
       onDictationForceStopped?: (
-        callback: (payload?: { reason?: "timeout" | "reset" | "manual" }) => void
+        callback: (payload?: { reason?: "timeout" | "reset" }) => void
       ) => () => void;
       micWarmHoldChanged?: (active: boolean) => void;
       dictationLifecycleStateChanged: (
