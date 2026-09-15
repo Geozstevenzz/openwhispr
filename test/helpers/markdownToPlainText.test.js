@@ -75,6 +75,14 @@ test("markdown escapes resolve to the escaped character", async () => {
   const { markdownToPlainText } = await helperModule;
   assert.equal(markdownToPlainText("\\*literal\\* and 5 \\_ 6"), "*literal* and 5 _ 6");
   assert.equal(markdownToPlainText("\\*\\*kept\\*\\*"), "**kept**");
+  assert.equal(markdownToPlainText(String.raw`\_literal\_`), "_literal_");
+  assert.equal(
+    markdownToPlainText(String.raw`**An escaped under\_score.**`),
+    "An escaped under_score."
+  );
+  assert.equal(markdownToPlainText(String.raw`"under\_score"`), '"under_score"');
+  assert.equal(markdownToPlainText(String.raw`\_literal\_name\_`), "_literal_name_");
+  assert.equal(markdownToPlainText(String.raw`**Use foo\*bar\*baz.**`), "Use foo*bar*baz.");
 });
 
 test("plain-text conventions a human would type are never altered", async () => {
@@ -263,4 +271,58 @@ test("table conversion preserves empty edge cells and column alignment", async (
   );
   assert.equal(markdownToPlainText("| | | |"), "\t\t");
   assert.equal(markdownToPlainText("  Prose.  \n\nMore prose. \n"), "Prose.\n\nMore prose.");
+});
+
+test("inline backtick spans at line start are not mistaken for fences", async () => {
+  const { markdownToPlainText } = await helperModule;
+  assert.equal(
+    markdownToPlainText("```hello```\nThis is the next paragraph."),
+    "hello\nThis is the next paragraph."
+  );
+  assert.equal(markdownToPlainText("````a`b````\n**Done.**"), "a`b\nDone.");
+});
+
+test("relative Windows paths and wildcard commands retain their separators", async () => {
+  const { markdownToPlainText } = await helperModule;
+  for (const path of [
+    String.raw`.\_cache\output.txt`,
+    String.raw`..\_cache\output.txt`,
+    String.raw`src\__tests__\index.test.ts`,
+    String.raw`src\*.ts`,
+    String.raw`__cache__\file.txt`,
+    String.raw`_cache_\file.txt`,
+    String.raw`src\[name]\_cache_.ts`,
+  ]) {
+    assert.equal(markdownToPlainText(`Open ${path} and **read** it.`), `Open ${path} and read it.`);
+    for (const marker of ["**", "*", "__", "_", "~~"]) {
+      assert.equal(markdownToPlainText(`${marker}${path}${marker}`), path);
+    }
+  }
+  assert.equal(markdownToPlainText(String.raw`Run dir src\*.ts`), String.raw`Run dir src\*.ts`);
+  assert.equal(
+    markdownToPlainText(String.raw`Open "src\My Files\_draft_.txt" and **read** it.`),
+    String.raw`Open "src\My Files\_draft_.txt" and read it.`
+  );
+});
+
+test("escaped punctuation inside emphasis is not a closing delimiter", async () => {
+  const { markdownToPlainText } = await helperModule;
+  for (const [input, expected] of [
+    [String.raw`*Use \* for wildcard matches.*`, "Use * for wildcard matches."],
+    [String.raw`_Use \_ as the separator._`, "Use _ as the separator."],
+    [String.raw`**Use \*\* for bold.**`, "Use ** for bold."],
+    [String.raw`__Use \_\_ for bold.__`, "Use __ for bold."],
+    [String.raw`~~Use \~\~ for strike.~~`, "Use ~~ for strike."],
+  ]) {
+    assert.equal(markdownToPlainText(input), expected);
+  }
+});
+
+test("fenced code preserves whitespace at the edges of an answer", async () => {
+  const { markdownToPlainText } = await helperModule;
+  const code = "    if enabled:\n        run()\n    return value  ";
+  for (const padding of ["", "\n", "  \n\n"]) {
+    assert.equal(markdownToPlainText(`${padding}\`\`\`python\n${code}\n\`\`\`${padding}`), code);
+  }
+  assert.equal(markdownToPlainText("```\n\n    value\n\n```"), "\n    value\n");
 });

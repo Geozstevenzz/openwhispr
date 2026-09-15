@@ -151,6 +151,26 @@ test("a clipboard-only delivery keeps the response verbatim", async () => {
 
 const LITERAL_CONTENT_CASES = [
   {
+    name: "inline code at line start",
+    content: "```hello```\nThis is the next paragraph.",
+    plainText: "hello\nThis is the next paragraph.",
+  },
+  {
+    name: "relative Windows paths",
+    content: String.raw`Open src\__tests__\index.test.ts and run dir src\*.ts.`,
+    plainText: String.raw`Open src\__tests__\index.test.ts and run dir src\*.ts.`,
+  },
+  {
+    name: "escaped punctuation in emphasis",
+    content: String.raw`*Use \* for wildcard matches.*`,
+    plainText: "Use * for wildcard matches.",
+  },
+  {
+    name: "fenced code indentation",
+    content: "```python\n    if enabled:\n        run()\n    return value\n```",
+    plainText: "    if enabled:\n        run()\n    return value",
+  },
+  {
     name: "POSIX paths",
     content: "Open /tmp/__init__.py and ~/__work__/code.",
     plainText: "Open /tmp/__init__.py and ~/__work__/code.",

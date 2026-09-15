@@ -23,14 +23,26 @@ const WEB_URL = /(?:https?|ftp):\/\/[^\s<>"`]+/;
 // otherwise the match would swallow the prose after an unquoted filename.
 const WINDOWS_PATH =
   /(?:[a-z]:\\|\\\\[^\s\\<>:"|?*`]+\\)(?:[^\\\r\n<>:"|?*`]*\\(?=[^\s\\<>:"|?*`]))*[^\s<>:"|?*`]*/;
+const RELATIVE_WINDOWS_PATH =
+  /(?<![a-z0-9\\])(?:__[a-z0-9.-][a-z0-9_.-]*__|_[a-z0-9.-][a-z0-9_.-]*_|[a-z0-9.-][a-z0-9_.-]*)\\[^\s<>:"|`]+/;
 // Paired underscores in a relative directory are part of its name; any
 // surrounding emphasis must stay outside the protected path.
 const POSIX_PATH =
   /(?<![a-z0-9/])(?:(?<!~)~\/|\.{1,2}\/|\/|__[a-z0-9.-][a-z0-9_.-]*__\/|_[a-z0-9.-][a-z0-9_.-]*_\/|[a-z0-9.-][a-z0-9_.-]*\/)[^\s<>"`]+/;
 const LITERAL_RESOURCE = new RegExp(
-  `${WEB_URL.source}|${WINDOWS_PATH.source}|${POSIX_PATH.source}`,
+  `${WEB_URL.source}|${WINDOWS_PATH.source}|${RELATIVE_WINDOWS_PATH.source}|${POSIX_PATH.source}`,
   "gi"
 );
+
+function hasWindowsPathStructure(text: string): boolean {
+  // A lone prose escape (under\_score) is ambiguous. Require a path prefix,
+  // a separator that cannot be a Markdown escape, or a filename extension.
+  return (
+    /^(?:[a-z]:\\|\\\\|\.{1,2}\\)/i.test(text) ||
+    /\\[a-z0-9]/i.test(text) ||
+    /\\[^\\]*\.[a-z0-9]/i.test(text)
+  );
+}
 
 function stripLinks(text: string, preserve: (content: string) => string): string {
   let result = "";
@@ -104,10 +116,12 @@ function stripInline(text: string): string {
 
   const stripped = stripLinks(withPlaceholders, preserve)
     .replace(
-      /(["'])((?:[a-z]:\\|\\\\[^\s\\]+\\|~\/|\.{1,2}\/|\/|[a-z0-9_.-]+\/)[^\r\n]*?)\1/gi,
-      (_match, quote: string, path: string): string => quote + preserve(path) + quote
+      /(["'])((?:[a-z]:\\|\\\\[^\s\\]+\\|[a-z0-9_.-]+\\|~\/|\.{1,2}\/|\/|[a-z0-9_.-]+\/)[^\r\n]*?)\1/gi,
+      (match, quote: string, path: string): string =>
+        path.includes("/") || hasWindowsPathStructure(path) ? quote + preserve(path) + quote : match
     )
     .replace(LITERAL_RESOURCE, (resource: string, offset: number, source: string): string => {
+      if (!resource.includes("/") && !hasWindowsPathStructure(resource)) return resource;
       // Earlier resources cannot open emphasis; only the surrounding prose can.
       resourceContext += source.slice(resourceEnd, offset);
       resourceEnd = offset + resource.length;
@@ -126,6 +140,8 @@ function stripInline(text: string): string {
       }
       return preserve(resource);
     })
+    // Escaped punctuation is literal, including at a would-be closing marker.
+    .replace(/\\([\\`*_{}[\]()#+\-.!|>~])/g, (_match, literal: string): string => preserve(literal))
     // `**` may sit intraword (intraword bold is legitimate); `__` requires a
     // non-word close that is also not `(`, so dunder identifiers such as
     // `__init__` (immediately followed by a call's `(`) are never mistaken
@@ -138,9 +154,7 @@ function stripInline(text: string): string {
     // The single-underscore content also may not start or end with `_` itself,
     // so a dunder like `__init__` is never absorbed as `_` + `_init_` + `_`.
     .replace(/(?<![\w*\\])\*(\S(?:.*?\S)?)\*(?![\w*])/g, "$1")
-    .replace(/(?<![\w_\\])_(?!_)(\S(?:.*?[^\s_])?)_(?![\w_])/g, "$1")
-    // Escapes resolve last so an escaped marker is never re-stripped.
-    .replace(/\\([\\`*_{}[\]()#+\-.!|>~])/g, "$1");
+    .replace(/(?<![\w_\\])_(?!_)(\S(?:.*?[^\s_])?)_(?![\w_])/g, "$1");
 
   return stripped.replace(
     new RegExp(`${placeholderPrefix}(\\d+)`, "g"),
@@ -167,6 +181,7 @@ function splitTableCells(row: string): string[] {
 
 export function markdownToPlainText(markdown: string): string {
   const lines: string[] = [];
+  const codeLines = new Set<number>();
   let openingFence: string | null = null;
 
   for (const line of markdown.split(/\r?\n/)) {
@@ -180,11 +195,12 @@ export function markdownToPlainText(markdown: string): string {
       ) {
         openingFence = null;
       } else {
+        codeLines.add(lines.length);
         lines.push(line);
       }
       continue;
     }
-    if (fence) {
+    if (fence && (fence[1][0] === "~" || !fence[2].includes("`"))) {
       openingFence = fence[1];
       continue;
     }
@@ -204,6 +220,11 @@ export function markdownToPlainText(markdown: string): string {
     lines.push(stripInline(block).replace(/[ \t]+$/, ""));
   }
 
-  // Tabs emitted by table rows represent cells, including empty edge cells.
-  return lines.join("\n").replace(/^[ \n]+|[ \n]+$/g, "");
+  // Trim only prose padding: code whitespace and table edge cells are data.
+  let start = 0;
+  let end = lines.length;
+  while (start < end && !codeLines.has(start) && /^ *$/.test(lines[start])) start += 1;
+  while (end > start && !codeLines.has(end - 1) && /^ *$/.test(lines[end - 1])) end -= 1;
+  if (start < end && !codeLines.has(start)) lines[start] = lines[start].replace(/^ +/, "");
+  return lines.slice(start, end).join("\n");
 }
