@@ -195,7 +195,6 @@ test("safePaste reports not pasted when the preload reports that no text was pas
 
   assert.deepEqual(await manager.safePaste("onboarding transcript"), {
     pasted: false,
-    reason: undefined,
   });
 });
 
@@ -211,7 +210,6 @@ test("safePaste reports pasted only when the preload reports a completed paste",
 
   assert.deepEqual(await manager.safePaste("completed transcript"), {
     pasted: true,
-    reason: undefined,
   });
 });
 

@@ -228,7 +228,12 @@ class SelectionManager {
         return { success: false, code: "target_changed" };
       }
       if (current.status === "unavailable") {
-        return { success: false, code: "selection_unavailable" };
+        // Keys still held past the modifier wait (#2113) are not a permissions
+        // problem, so they get their own code.
+        return {
+          success: false,
+          code: current.code === "modifiers_held" ? "modifiers_held" : "selection_unavailable",
+        };
       }
       if (current.status !== "selected" || current.text !== session.text) {
         return { success: false, code: "selection_changed" };
@@ -241,7 +246,10 @@ class SelectionManager {
         });
         await pasteResult?.restoreComplete;
         if (pasteResult?.pasted === false) {
-          return { success: false, code: "paste_failed" };
+          return {
+            success: false,
+            code: pasteResult.reason === "modifiers-held" ? "modifiers_held" : "paste_failed",
+          };
         }
         return { success: true };
       } catch (error) {

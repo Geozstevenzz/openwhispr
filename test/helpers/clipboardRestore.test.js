@@ -821,6 +821,63 @@ for (const [label, output] of [
   });
 }
 
+// The helper can only hang if the X server or an evdev read stalls, but a hung
+// wait must never hang the paste: the watchdog kills it and pastes as before.
+test("a hung modifier wait is killed after the watchdog budget and reads as unknown", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const kills = [];
+  const TestClipboardManager = loadClipboardManager({
+    spawn: () => {
+      const hungProcess = new EventEmitter();
+      hungProcess.stdout = new EventEmitter();
+      hungProcess.stderr = new EventEmitter();
+      hungProcess.exitCode = null;
+      hungProcess.kill = (signal) => kills.push(signal);
+      return hungProcess;
+    },
+    realModifierWait: true,
+  });
+  const manager = new TestClipboardManager();
+  manager.resolveLinuxFastPasteBinary = () => "/tmp/linux-fast-paste";
+
+  let state = null;
+  const wait = manager._awaitModifierRelease().then((resolved) => {
+    state = resolved;
+  });
+  t.mock.timers.tick(2499);
+  await Promise.resolve();
+  assert.equal(state, null, "the wait budget plus a second of slack is honored");
+  assert.deepEqual(kills, []);
+
+  t.mock.timers.tick(1);
+  await wait;
+  assert.equal(state, "unknown");
+  assert.deepEqual(kills, ["SIGKILL"]);
+});
+
+test(
+  "a modifier wait whose helper fails to spawn reads as unknown",
+  { timeout: 5000 },
+  async (t) => {
+    // Frozen timers: only the spawn error itself may settle the wait, not the watchdog.
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const TestClipboardManager = loadClipboardManager({
+      spawn: () => {
+        const failedProcess = new EventEmitter();
+        failedProcess.stdout = new EventEmitter();
+        failedProcess.stderr = new EventEmitter();
+        process.nextTick(() => failedProcess.emit("error", new Error("ENOENT")));
+        return failedProcess;
+      },
+      realModifierWait: true,
+    });
+    const manager = new TestClipboardManager();
+    manager.resolveLinuxFastPasteBinary = () => "/tmp/linux-fast-paste";
+
+    assert.equal(await manager._awaitModifierRelease(), "unknown");
+  }
+);
+
 test("without the fast-paste binary the paste chain is unchanged", async () => {
   const spawnCalls = [];
   const TestClipboardManager = loadClipboardManager({

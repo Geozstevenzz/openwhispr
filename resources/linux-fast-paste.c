@@ -15,6 +15,7 @@
 #include <linux/input.h>
 #include <math.h>
 #include <sys/ioctl.h>
+#include <time.h>
 #include <unistd.h>
 
 #ifdef HAVE_UINPUT
@@ -928,6 +929,12 @@ static int is_wayland_session(void) {
            getenv("WAYLAND_DISPLAY") != NULL;
 }
 
+static long monotonic_ms(void) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return now.tv_sec * 1000L + now.tv_nsec / 1000000L;
+}
+
 static modifier_state_t await_modifier_release(int timeout_ms, int *waited_ms) {
     Display *display = is_wayland_session() ? NULL : XOpenDisplay(NULL);
     int fds[MAX_KEYBOARDS];
@@ -935,11 +942,14 @@ static modifier_state_t await_modifier_release(int timeout_ms, int *waited_ms) {
     *waited_ms = 0;
     if (!display && count == 0) return MODIFIERS_UNKNOWN;
 
+    /* Measured on the clock, not by counting sleeps: usleep overshoots under
+     * load, and the caller kills a helper that runs past timeout + 1s. */
+    long started_at = monotonic_ms();
     int held;
     while ((held = display ? x11_modifier_held(display) : evdev_modifier_held(fds, count)) &&
            *waited_ms < timeout_ms) {
         usleep(MODIFIER_POLL_MS * 1000);
-        *waited_ms += MODIFIER_POLL_MS;
+        *waited_ms = (int)(monotonic_ms() - started_at);
     }
 
     if (display) XCloseDisplay(display);

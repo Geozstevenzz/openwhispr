@@ -1136,6 +1136,7 @@ declare global {
           | "selection_unavailable"
           | "selection_changed"
           | "paste_failed"
+          | "modifiers_held"
           | "selection_manager_unavailable";
         error?: string;
       }>;

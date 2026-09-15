@@ -26,6 +26,7 @@ export default class FakeAudioManager {
   setAssistantSelectionContext() {}
   setTranslationRequested() {}
   startRecording() {
+    globalThis.__forceStopStarts += 1;
     return Promise.resolve(true);
   }
   complete(result) {
@@ -73,13 +74,23 @@ export const useTranslation = () => ({ t: translate });
 
 const NOOP = () => {};
 
-async function mountHarness(t, { settings, writeClipboard, pasteOutcome = { pasted: true } } = {}) {
+async function mountHarness(
+  t,
+  {
+    settings,
+    writeClipboard,
+    pasteOutcome = { pasted: true },
+    replaceOutcome = { success: true },
+  } = {}
+) {
   let root = null;
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
   });
 
   const clipboardWrites = [];
+  const replacements = [];
+  const lifecycle = [];
   const toasts = [];
   let forceStopListener = null;
   const noopDispose = () => () => {};
@@ -98,13 +109,17 @@ async function mountHarness(t, { settings, writeClipboard, pasteOutcome = { past
           forceStopListener = callback;
           return () => {};
         },
-        dictationLifecycleStateChanged: NOOP,
+        dictationLifecycleStateChanged: (state) => lifecycle.push(state),
         completeDictationPreview: NOOP,
         hideDictationPreview: NOOP,
         setScreenContextEnabled: NOOP,
         async writeClipboard(text) {
           clipboardWrites.push(text);
           return writeClipboard ? writeClipboard(text) : { success: true };
+        },
+        async replaceSelectedText(sessionId, text, options) {
+          replacements.push({ sessionId, text, options });
+          return replaceOutcome;
         },
       },
     },
@@ -123,6 +138,7 @@ async function mountHarness(t, { settings, writeClipboard, pasteOutcome = { past
   };
   globalThis.__forceStopPastes = [];
   globalThis.__forceStopPasteOutcome = pasteOutcome;
+  globalThis.__forceStopStarts = 0;
 
   const vite = await createRendererServer(t, {
     cachePrefix: "openwhispr-audio-recording-force-stop-",
@@ -138,11 +154,11 @@ async function mountHarness(t, { settings, writeClipboard, pasteOutcome = { past
   const { useAudioRecording } = await vite.ssrLoadModule("/hooks/useAudioRecording.js");
 
   const api = {};
+  // Stable like the app's ToastProvider callback: a new identity per render
+  // would re-run the hook's mount effect on every state change.
+  const pushToast = (entry) => toasts.push(entry);
   function Harness() {
-    Object.assign(
-      api,
-      useAudioRecording((entry) => toasts.push(entry), { onDemoEvent: NOOP })
-    );
+    Object.assign(api, useAudioRecording(pushToast, { onDemoEvent: NOOP }));
     return null;
   }
 
@@ -152,9 +168,13 @@ async function mountHarness(t, { settings, writeClipboard, pasteOutcome = { past
   });
 
   return {
+    api,
     clipboardWrites,
+    lifecycle,
     pastes: globalThis.__forceStopPastes,
+    replacements,
     toasts,
+    recordingStarts: () => globalThis.__forceStopStarts,
     forceStop: async (reason) => {
       assert.ok(forceStopListener, "the hook must subscribe to dictation-force-stopped");
       await React.act(async () => forceStopListener({ reason }));
@@ -162,9 +182,11 @@ async function mountHarness(t, { settings, writeClipboard, pasteOutcome = { past
     startRecording: async () => {
       await React.act(async () => api.startRecording());
     },
-    complete: async (result) => {
+    // `detach` returns while the paste is still in flight, for tests that
+    // observe the hook mid-paste.
+    complete: async (result, { detach = false } = {}) => {
       await React.act(async () => {
-        await globalThis.__forceStopAudioManager.complete({
+        const completion = globalThis.__forceStopAudioManager.complete({
           success: true,
           text: "held too long",
           rawText: "held too long",
@@ -172,10 +194,18 @@ async function mountHarness(t, { settings, writeClipboard, pasteOutcome = { past
           source: "openai",
           ...result,
         });
+        if (!detach) await completion;
+      });
+    },
+    flush: async () => {
+      await React.act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
       });
     },
   };
 }
+
+const retryAction = (toast) => toast.actions.find((action) => action.label === "common.retry");
 
 const errorToasts = (harness) =>
   harness.toasts.filter((entry) => entry.presentation === "dictation-error");
@@ -238,6 +268,107 @@ test("a clipboard-only fallback without a reason raises no error", async (t) => 
 
   assert.deepEqual(harness.clipboardWrites, []);
   assert.deepEqual(errorToasts(harness), []);
+});
+
+// A selection edit is blocked by held keys at two points (revalidation and
+// the paste itself); both arrive as `modifiers_held`, which must not read as a
+// permissions problem, and the edit must be kept like any held-back paste.
+test("a selection edit held back for still-held modifiers keeps the edit and says why", async (t) => {
+  const harness = await mountHarness(t, {
+    replaceOutcome: { success: false, code: "modifiers_held" },
+  });
+
+  await harness.complete({ selectionEdit: { sessionId: "selection-1" } });
+
+  assert.equal(harness.replacements.length, 1);
+  assert.deepEqual(harness.pastes, [], "the edit is not pasted blindly");
+  assert.deepEqual(harness.clipboardWrites, ["held too long"]);
+  const [toast] = errorToasts(harness);
+  assert.equal(toast.title, "hooks.audioRecording.selectionEditing.notAppliedTitle");
+  assert.equal(toast.description, "hooks.audioRecording.selectionEditing.modifiersHeld");
+});
+
+test("a held-back selection edit whose clipboard write fails is not described as a success", async (t) => {
+  const harness = await mountHarness(t, {
+    writeClipboard: () => ({ success: false }),
+    replaceOutcome: { success: false, code: "modifiers_held" },
+  });
+
+  await harness.complete({ selectionEdit: { sessionId: "selection-1" } });
+
+  const [toast] = errorToasts(harness);
+  assert.equal(
+    toast.description,
+    "hooks.audioRecording.selectionEditing.modifiersHeldClipboardFailed"
+  );
+});
+
+// The transcript is already on the clipboard; what the user wants back is the
+// paste, not another recording.
+test("retrying a held-back paste pastes again instead of recording again", async (t) => {
+  const harness = await mountHarness(t, {
+    pasteOutcome: { pasted: false, reason: "modifiers-held" },
+  });
+  await harness.complete();
+  const [toast] = errorToasts(harness);
+
+  globalThis.__forceStopPasteOutcome = { pasted: true };
+  await React.act(async () => retryAction(toast).onClick());
+
+  assert.equal(harness.pastes.length, 2);
+  assert.deepEqual(harness.pastes[1].options, harness.pastes[0].options);
+  assert.equal(harness.recordingStarts(), 0);
+  assert.equal(errorToasts(harness).length, 1, "a paste that landed raises no new pill");
+});
+
+test("retrying a held-back paste while the keys are still held shows the pill again", async (t) => {
+  const harness = await mountHarness(t, {
+    pasteOutcome: { pasted: false, reason: "modifiers-held" },
+  });
+  await harness.complete();
+  const [toast] = errorToasts(harness);
+
+  await React.act(async () => retryAction(toast).onClick());
+
+  assert.equal(harness.pastes.length, 2);
+  assert.equal(harness.recordingStarts(), 0);
+  assert.equal(errorToasts(harness).length, 2);
+});
+
+test("retrying a force-stopped push pastes the kept transcript", async (t) => {
+  const harness = await mountHarness(t);
+  await harness.forceStop("timeout");
+  await harness.complete();
+  const [toast] = errorToasts(harness);
+
+  await React.act(async () => retryAction(toast).onClick());
+
+  assert.deepEqual(
+    harness.pastes.map((paste) => paste.text),
+    ["held too long"]
+  );
+  assert.equal(harness.recordingStarts(), 0);
+});
+
+// The audio manager settles processing before the paste starts, so the pill
+// would sit idle while the modifier wait runs (up to 1.5 s). The hook keeps the
+// processing state until the paste attempt has settled.
+test("the hook stays processing until the paste attempt settles", async (t) => {
+  let finishPaste;
+  const harness = await mountHarness(t, {
+    pasteOutcome: new Promise((resolve) => {
+      finishPaste = resolve;
+    }),
+  });
+
+  await harness.complete(undefined, { detach: true });
+  assert.equal(harness.api.isProcessing, true);
+  assert.equal(harness.lifecycle.at(-1), "processing");
+
+  await React.act(async () => finishPaste({ pasted: true }));
+  await harness.flush();
+  assert.equal(harness.api.isProcessing, false);
+  assert.equal(harness.lifecycle.at(-1), "idle");
 });
 
 test("an ordinary dictation still pastes", async (t) => {

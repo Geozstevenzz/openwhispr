@@ -3969,7 +3969,10 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   async safePaste(text, options = {}) {
     try {
       const result = await window.electronAPI.pasteText(text, options);
-      return { pasted: result?.pasted === true, reason: result?.reason };
+      return {
+        pasted: result?.pasted === true,
+        ...(result?.reason ? { reason: result.reason } : {}),
+      };
     } catch (error) {
       const message =
         error?.message ??

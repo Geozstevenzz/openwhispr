@@ -243,6 +243,35 @@ test("does not paste when the selection changed", async () => {
   assert.equal(pastes.length, 0);
 });
 
+// Keys still held past the modifier wait (#2113) block the edit at two points.
+// Both must say so: "selection_unavailable" sends the user to permissions
+// settings and "paste_failed" hides that the edit is on the clipboard.
+test("a replacement blocked by held modifiers at revalidation reports modifiers_held", async () => {
+  const { manager, pastes } = makeHarness({ selections: ["original"] });
+  const capture = await manager.captureSelectedText();
+  manager._readCurrentSelection = async () => ({ status: "unavailable", code: "modifiers_held" });
+
+  assert.deepEqual(await manager.replaceSelectedText(capture.sessionId, "improved"), {
+    success: false,
+    code: "modifiers_held",
+  });
+  assert.equal(pastes.length, 0);
+});
+
+test("a replacement whose paste was held back for modifiers reports modifiers_held", async () => {
+  const { manager, pastes } = makeHarness({
+    selections: ["original", "original"],
+    pasteResult: { restoreComplete: Promise.resolve(), pasted: false, reason: "modifiers-held" },
+  });
+  const capture = await manager.captureSelectedText();
+
+  assert.deepEqual(await manager.replaceSelectedText(capture.sessionId, "improved"), {
+    success: false,
+    code: "modifiers_held",
+  });
+  assert.equal(pastes.length, 1);
+});
+
 test("selection sessions are single-use", async () => {
   const { manager } = makeHarness({ selections: ["original", "original", "original"] });
   const capture = await manager.captureSelectedText();
@@ -605,7 +634,10 @@ for (const [modifiers, expectCopy] of [
     const result = await manager._readLinuxSelection(null);
 
     assert.equal(copyAttempts, expectCopy ? 1 : 0);
-    if (!expectCopy) assert.deepEqual(result, { status: "unavailable", code: "modifiers_held" });
+    assert.deepEqual(
+      result,
+      expectCopy ? { status: "none", target } : { status: "unavailable", code: "modifiers_held" }
+    );
   });
 }
 

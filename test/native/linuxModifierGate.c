@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 /* XTest keys are released when the client that pressed them disconnects, so the
@@ -33,8 +34,15 @@ static FILE *start_wait(const char *helper, int timeout_ms)
   return output;
 }
 
-static void finish_wait(FILE *output, const char *expected_state, int min_waited_ms,
-                        int max_waited_ms)
+static long now_ms(void)
+{
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now);
+  return now.tv_sec * 1000L + now.tv_nsec / 1000000L;
+}
+
+static int finish_wait(FILE *output, const char *expected_state, int min_waited_ms,
+                       int max_waited_ms)
 {
   char state[32];
   int waited_ms = -1;
@@ -47,6 +55,7 @@ static void finish_wait(FILE *output, const char *expected_state, int min_waited
             min_waited_ms, max_waited_ms, state, waited_ms);
     exit(1);
   }
+  return waited_ms;
 }
 
 int main(int argc, char **argv)
@@ -60,6 +69,18 @@ int main(int argc, char **argv)
 
   set_key(XK_Control_L, True);
   finish_wait(start_wait(helper, 100), "held", 100, 1000);
+
+  /* The reported wait must be wall-clock time: the JS caller kills the helper
+   * at timeout + 1s, and a wait that counts sleeps instead of time runs past
+   * that on a loaded machine, so the paste would go ahead into the held key. */
+  long started_at = now_ms();
+  int waited_ms = finish_wait(start_wait(helper, 2000), "held", 2000, 2100);
+  long overshoot_ms = now_ms() - started_at - waited_ms;
+  if (overshoot_ms < 0 || overshoot_ms > 100) {
+    fprintf(stderr, "helper reported %dms but ran %ldms longer than that\n", waited_ms,
+            overshoot_ms);
+    exit(1);
+  }
 
   FILE *output = start_wait(helper, 3000);
   usleep(200000);
