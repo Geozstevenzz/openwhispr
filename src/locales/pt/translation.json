@@ -906,6 +906,11 @@
         "description": "O ditado parou enquanto a tecla ainda estava pressionada, por isso o texto não foi colado. Sua transcrição está na área de transferência.",
         "descriptionClipboardFailed": "O ditado parou enquanto a tecla ainda estava pressionada, por isso o texto não foi colado e também não foi possível copiá-lo para a área de transferência."
       },
+      "modifiersHeld": {
+        "title": "Transcrição não colada",
+        "description": "Uma tecla modificadora (como Ctrl ou Shift) ainda estava pressionada, por isso o texto não foi colado. Sua transcrição está na área de transferência.",
+        "descriptionClipboardFailed": "Uma tecla modificadora (como Ctrl ou Shift) ainda estava pressionada, por isso o texto não foi colado e também não foi possível copiá-lo para a área de transferência."
+      },
       "selectionEditing": {
         "notAppliedTitle": "Edição da seleção não aplicada",
         "changed": "O texto selecionado ou o aplicativo de destino mudou durante o processamento. Nada foi substituído.",

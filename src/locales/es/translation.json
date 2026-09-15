@@ -927,6 +927,11 @@
         "description": "El dictado se detuvo mientras la tecla seguía pulsada, así que el texto no se pegó. Tu transcripción está en el portapapeles.",
         "descriptionClipboardFailed": "El dictado se detuvo mientras la tecla seguía pulsada, así que el texto no se pegó y tampoco se pudo copiar al portapapeles."
       },
+      "modifiersHeld": {
+        "title": "Transcripción no pegada",
+        "description": "Una tecla modificadora (como Ctrl o Mayús) seguía pulsada, así que el texto no se pegó. Tu transcripción está en el portapapeles.",
+        "descriptionClipboardFailed": "Una tecla modificadora (como Ctrl o Mayús) seguía pulsada, así que el texto no se pegó y tampoco se pudo copiar al portapapeles."
+      },
       "selectionEditing": {
         "notAppliedTitle": "Edición de selección no aplicada",
         "changed": "El texto seleccionado o la aplicación de destino cambió durante el procesamiento. No se reemplazó nada.",

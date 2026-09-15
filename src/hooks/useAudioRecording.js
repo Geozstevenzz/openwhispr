@@ -611,22 +611,33 @@ export const useAudioRecording = (toast, options = {}) => {
             }
           };
 
+          // A paste held back because keys were still down keeps the transcript
+          // and says why it did not land.
+          const reportHeldBackPaste = async (
+            delivery,
+            { title, description, descriptionClipboardFailed }
+          ) => {
+            const keptInClipboard = await keepInClipboard(delivery);
+            window.electronAPI?.hideDictationPreview?.();
+            showDictationError({
+              title,
+              // Never promise a clipboard that rejected the write; the transcript
+              // action on this pill is the recovery path either way.
+              description: keptInClipboard ? description : descriptionClipboardFailed,
+              transcript: result.rawText ?? result.text,
+            });
+          };
+
           if (pushForceStoppedRef.current && autoPasteEnabled && !result.assistantConversation) {
             // The push hit its safety ceiling while the trigger keys were still
             // down. Injecting the paste shortcut into those held modifiers is
             // what silently loses the transcript, so keep it instead.
-            const keptInClipboard = await keepInClipboard("push-force-stopped");
-            window.electronAPI?.hideDictationPreview?.();
-            showDictationError({
+            await reportHeldBackPaste("push-force-stopped", {
               title: t("hooks.audioRecording.pushForceStopped.title"),
-              // Never promise a clipboard that rejected the write; the transcript
-              // action on this pill is the recovery path either way.
-              description: t(
-                keptInClipboard
-                  ? "hooks.audioRecording.pushForceStopped.description"
-                  : "hooks.audioRecording.pushForceStopped.descriptionClipboardFailed"
+              description: t("hooks.audioRecording.pushForceStopped.description"),
+              descriptionClipboardFailed: t(
+                "hooks.audioRecording.pushForceStopped.descriptionClipboardFailed"
               ),
-              transcript: result.rawText ?? result.text,
             });
           } else if (autoPasteEnabled && !result.assistantConversation) {
             const pasteStart = performance.now();
@@ -655,11 +666,21 @@ export const useAudioRecording = (toast, options = {}) => {
                 });
               }
             } else {
-              pasteSucceeded = await audioManagerRef.current.safePaste(result.text, {
+              const pasteOutcome = await audioManagerRef.current.safePaste(result.text, {
                 ...(isStreaming ? { fromStreaming: true } : {}),
                 restoreClipboard: !keepTranscriptionInClipboard,
                 allowClipboardFallback: isAccessibilitySkipped(),
               });
+              pasteSucceeded = pasteOutcome.pasted;
+              if (pasteOutcome.reason === "modifiers-held") {
+                await reportHeldBackPaste("modifiers-held", {
+                  title: t("hooks.audioRecording.modifiersHeld.title"),
+                  description: t("hooks.audioRecording.modifiersHeld.description"),
+                  descriptionClipboardFailed: t(
+                    "hooks.audioRecording.modifiersHeld.descriptionClipboardFailed"
+                  ),
+                });
+              }
             }
             logger.info(
               "Paste timing",

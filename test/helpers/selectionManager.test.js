@@ -574,6 +574,41 @@ test("a terminal target reads as no selection", async () => {
   assert.deepEqual(result.target, terminalTarget);
 });
 
+// Capture runs right after the voice assistant hotkey press, while its keys are
+// often still down. A Ctrl+C sent into them copies nothing, so capture waits for
+// the release and fails closed when the keys stay held.
+for (const [modifiers, expectCopy] of [
+  ["held", false],
+  ["released", true],
+  ["unknown", true],
+]) {
+  test(`Linux selection capture ${expectCopy ? "copies" : "sends no copy"} when modifiers are ${modifiers}`, async () => {
+    let copyAttempts = 0;
+    const manager = new SelectionManager({
+      clipboardManager: {
+        runClipboardOperation: (operation) => operation(),
+        isLinuxTerminalWindowClass: () => false,
+        resolveLinuxFastPasteBinary: () => "/tmp/linux-fast-paste",
+        _awaitModifierRelease: async () => modifiers,
+      },
+      textEditMonitor: {},
+      platform: "linux",
+      now: () => 1000,
+    });
+    const target = { kind: "x11-window", id: "7", windowClass: "org.gnome.texteditor" };
+    manager._getLinuxTarget = async () => target;
+    manager._captureViaClipboard = async () => {
+      copyAttempts += 1;
+      return { status: "none", target };
+    };
+
+    const result = await manager._readLinuxSelection(null);
+
+    assert.equal(copyAttempts, expectCopy ? 1 : 0);
+    if (!expectCopy) assert.deepEqual(result, { status: "unavailable", code: "modifiers_held" });
+  });
+}
+
 // macOS accessibility never resolves a focused element in Chromium browsers, so
 // a synthetic ⌘C is the only way to tell a real selection from an empty field.
 function makeMacClipboardHarness({ copyOutput = "COPY_OK 42 Dia", copied = null } = {}) {

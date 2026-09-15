@@ -421,6 +421,12 @@ class SelectionManager {
       );
     }
 
+    // Capture runs right after the voice assistant hotkey press, so its keys are
+    // often still down; a Ctrl+C sent into them copies nothing.
+    if ((await this.clipboardManager._awaitModifierRelease()) === "held") {
+      return { status: "unavailable", code: "modifiers_held" };
+    }
+
     const capture = await this._captureViaClipboard(async () => {
       if (binary) {
         if (target.kind === "x11-window") {

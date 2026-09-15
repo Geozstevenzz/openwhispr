@@ -33,7 +33,7 @@ export default class FakeAudioManager {
   }
   async safePaste(text, options) {
     globalThis.__forceStopPastes.push({ text, options });
-    return true;
+    return globalThis.__forceStopPasteOutcome;
   }
   saveTranscription() {
     return Promise.resolve(true);
@@ -73,7 +73,7 @@ export const useTranslation = () => ({ t: translate });
 
 const NOOP = () => {};
 
-async function mountHarness(t, { settings, writeClipboard } = {}) {
+async function mountHarness(t, { settings, writeClipboard, pasteOutcome = { pasted: true } } = {}) {
   let root = null;
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
@@ -122,6 +122,7 @@ async function mountHarness(t, { settings, writeClipboard } = {}) {
     ...settings,
   };
   globalThis.__forceStopPastes = [];
+  globalThis.__forceStopPasteOutcome = pasteOutcome;
 
   const vite = await createRendererServer(t, {
     cachePrefix: "openwhispr-audio-recording-force-stop-",
@@ -205,6 +206,40 @@ for (const reason of ["timeout", "reset"]) {
   });
 }
 
+// Modifiers still down when the paste was due (#2113): the main process held the
+// paste back, so the transcript must be surfaced exactly like a forced stop.
+test("a paste held back for still-held modifiers keeps the transcript", async (t) => {
+  const harness = await mountHarness(t, {
+    pasteOutcome: { pasted: false, reason: "modifiers-held" },
+  });
+
+  await harness.complete();
+
+  assert.equal(harness.pastes.length, 1, "the paste was attempted, then held back");
+  assert.deepEqual(harness.clipboardWrites, ["held too long"]);
+  const [toast] = errorToasts(harness);
+  assert.ok(toast, "the transcript is surfaced, not dropped");
+  assert.equal(toast.title, "hooks.audioRecording.modifiersHeld.title");
+  assert.equal(toast.description, "hooks.audioRecording.modifiersHeld.description");
+  assert.ok(
+    toast.actions.some(
+      (action) => action.label === "hooks.audioRecording.errorActions.viewTranscript"
+    ),
+    "the pill must carry the transcript so it stays recoverable"
+  );
+});
+
+// A macOS clipboard-only fallback (accessibility skipped) is also "not pasted",
+// but it is expected and carries no reason, so it must stay silent.
+test("a clipboard-only fallback without a reason raises no error", async (t) => {
+  const harness = await mountHarness(t, { pasteOutcome: { pasted: false } });
+
+  await harness.complete();
+
+  assert.deepEqual(harness.clipboardWrites, []);
+  assert.deepEqual(errorToasts(harness), []);
+});
+
 test("an ordinary dictation still pastes", async (t) => {
   const harness = await mountHarness(t);
 
@@ -281,6 +316,22 @@ for (const [label, writeClipboard] of [
     assert.equal(
       toast.description,
       "hooks.audioRecording.pushForceStopped.descriptionClipboardFailed"
+    );
+  });
+
+  test(`a held-back paste whose clipboard write ${label} is not described as a success`, async (t) => {
+    const harness = await mountHarness(t, {
+      writeClipboard,
+      pasteOutcome: { pasted: false, reason: "modifiers-held" },
+    });
+
+    await harness.complete();
+
+    const [toast] = errorToasts(harness);
+    assert.ok(toast, "the transcript is still surfaced");
+    assert.equal(
+      toast.description,
+      "hooks.audioRecording.modifiersHeld.descriptionClipboardFailed"
     );
   });
 }

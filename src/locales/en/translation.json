@@ -927,6 +927,11 @@
         "description": "Dictation stopped while the hotkey was still held, so the text was not pasted. Your transcription is on the clipboard.",
         "descriptionClipboardFailed": "Dictation stopped while the hotkey was still held, so the text was not pasted, and it could not be copied to the clipboard either."
       },
+      "modifiersHeld": {
+        "title": "Transcription not pasted",
+        "description": "A modifier key (like Ctrl or Shift) was still held down, so the text was not pasted. Your transcription is on the clipboard.",
+        "descriptionClipboardFailed": "A modifier key (like Ctrl or Shift) was still held down, so the text was not pasted, and it could not be copied to the clipboard either."
+      },
       "selectionEditing": {
         "notAppliedTitle": "Selection edit not applied",
         "changed": "The selected text or target app changed while OpenWhispr was processing. Nothing was replaced.",

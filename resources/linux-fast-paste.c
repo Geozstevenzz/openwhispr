@@ -6,16 +6,19 @@
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
 #include <X11/Xutil.h>
+#include <X11/XKBlib.h>
 #include <X11/extensions/XTest.h>
 #include <X11/extensions/shape.h>
 #include <X11/keysym.h>
+#include <dirent.h>
+#include <fcntl.h>
+#include <linux/input.h>
 #include <math.h>
+#include <sys/ioctl.h>
 #include <unistd.h>
 
 #ifdef HAVE_UINPUT
 #include <linux/uinput.h>
-#include <linux/input.h>
-#include <fcntl.h>
 #include <errno.h>
 #endif
 
@@ -843,6 +846,110 @@ static int serve_input_region(Window window)
     return 0;
 }
 
+/* A paste or copy chord injected while the user still physically holds a
+ * modifier (the rest of a push-to-talk chord, or a tap hotkey still down when a
+ * fast transcript lands) reaches the target as a different shortcut, and the
+ * text is lost (#2113). Releasing the key on the user's behalf is not possible:
+ * the kernel drops a key-up from a virtual device that never pressed that key.
+ * So wait for the user to let go instead. */
+#define MODIFIER_POLL_MS 10
+/* Lets the compositor process the physical release before the chord arrives. */
+#define MODIFIER_SETTLE_MS 30
+#define MAX_KEYBOARDS 64
+#define KEY_BITS_SIZE (KEY_MAX / 8 + 1)
+
+typedef enum {
+    MODIFIERS_RELEASED = 0,
+    MODIFIERS_HELD     = 1,
+    MODIFIERS_UNKNOWN  = 2,
+} modifier_state_t;
+
+static const int modifier_keys[] = {
+    KEY_LEFTCTRL, KEY_RIGHTCTRL, KEY_LEFTSHIFT, KEY_RIGHTSHIFT,
+    KEY_LEFTALT,  KEY_RIGHTALT,  KEY_LEFTMETA,  KEY_RIGHTMETA,
+};
+
+static int test_key_bit(const unsigned char *bits, int code) {
+    return (bits[code / 8] >> (code % 8)) & 1;
+}
+
+/* Same keyboard test as linux-key-listener.c: EV_KEY with a KEY_A bit. */
+static int open_keyboards(int *fds) {
+    DIR *dir = opendir("/dev/input");
+    if (!dir) return 0;
+
+    int count = 0;
+    struct dirent *ent;
+    while ((ent = readdir(dir)) && count < MAX_KEYBOARDS) {
+        if (strncmp(ent->d_name, "event", 5) != 0) continue;
+
+        char path[512];
+        snprintf(path, sizeof(path), "/dev/input/%s", ent->d_name);
+        int fd = open(path, O_RDONLY | O_NONBLOCK);
+        if (fd < 0) continue;
+
+        unsigned char key_bits[KEY_BITS_SIZE] = { 0 };
+        if (ioctl(fd, EVIOCGBIT(EV_KEY, sizeof(key_bits)), key_bits) < 0 ||
+            !test_key_bit(key_bits, KEY_A)) {
+            close(fd);
+            continue;
+        }
+        fds[count++] = fd;
+    }
+    closedir(dir);
+    return count;
+}
+
+static int evdev_modifier_held(const int *fds, int count) {
+    for (int i = 0; i < count; i++) {
+        unsigned char keys[KEY_BITS_SIZE] = { 0 };
+        if (ioctl(fds[i], EVIOCGKEY(sizeof(keys)), keys) < 0) continue;
+        for (size_t k = 0; k < sizeof(modifier_keys) / sizeof(modifier_keys[0]); k++) {
+            if (test_key_bit(keys, modifier_keys[k])) return 1;
+        }
+    }
+    return 0;
+}
+
+/* base_mods only counts keys that are down, so a locked Caps Lock or Num Lock
+ * never reads as held. */
+static int x11_modifier_held(Display *display) {
+    XkbStateRec state;
+    return XkbGetState(display, XkbUseCoreKbd, &state) == Success && state.base_mods != 0;
+}
+
+/* Mirrors getLinuxSessionInfo() in src/helpers/linuxSession.js. XWayland only
+ * tracks keys while one of its own windows has focus, so the X server is trusted
+ * on an X11 session only; Wayland reads the kernel's key state, which needs the
+ * same /dev/input access as push-to-talk. */
+static int is_wayland_session(void) {
+    const char *session_type = getenv("XDG_SESSION_TYPE");
+    return (session_type && strcasecmp(session_type, "wayland") == 0) ||
+           getenv("WAYLAND_DISPLAY") != NULL;
+}
+
+static modifier_state_t await_modifier_release(int timeout_ms, int *waited_ms) {
+    Display *display = is_wayland_session() ? NULL : XOpenDisplay(NULL);
+    int fds[MAX_KEYBOARDS];
+    int count = display ? 0 : open_keyboards(fds);
+    *waited_ms = 0;
+    if (!display && count == 0) return MODIFIERS_UNKNOWN;
+
+    int held;
+    while ((held = display ? x11_modifier_held(display) : evdev_modifier_held(fds, count)) &&
+           *waited_ms < timeout_ms) {
+        usleep(MODIFIER_POLL_MS * 1000);
+        *waited_ms += MODIFIER_POLL_MS;
+    }
+
+    if (display) XCloseDisplay(display);
+    for (int i = 0; i < count; i++) close(fds[i]);
+
+    if (held) return MODIFIERS_HELD;
+    if (*waited_ms > 0) usleep(MODIFIER_SETTLE_MS * 1000);
+    return MODIFIERS_RELEASED;
+}
+
 int main(int argc, char *argv[]) {
     int force_terminal = 0;
     int force_shift_insert = 0;
@@ -854,6 +961,7 @@ int main(int argc, char *argv[]) {
     int input_region_server = 0;
     int atspi_target_only = 0;
     int atspi_selection = 0;
+    int modifier_wait_ms = -1;
     const char *restore_token = NULL;
     Window target_window = None;
 
@@ -882,15 +990,25 @@ int main(int argc, char *argv[]) {
             restore_token = argv[++i];
         } else if (strcmp(argv[i], "--window") == 0 && i + 1 < argc) {
             target_window = (Window)strtoul(argv[++i], NULL, 0);
+        } else if (strcmp(argv[i], "--await-modifier-release") == 0 && i + 1 < argc) {
+            modifier_wait_ms = atoi(argv[++i]);
         }
     }
 
-    /* --capabilities makes older binaries exit harmlessly instead of pasting
-     * when they encounter the new server flag. */
+    /* Callers pair these flags with --capabilities, so an older binary that
+     * ignores them prints its capabilities and exits instead of pasting. */
     if (input_region_server) return serve_input_region(target_window);
 
+    if (modifier_wait_ms >= 0) {
+        static const char *state_names[] = { "released", "held", "unknown" };
+        int waited_ms;
+        modifier_state_t state = await_modifier_release(modifier_wait_ms, &waited_ms);
+        printf("MODIFIERS %s %d\n", state_names[state], waited_ms);
+        return 0;
+    }
+
     if (capabilities_only) {
-        printf("paste-v1 selection-copy-v1 target-window-v1");
+        printf("paste-v1 selection-copy-v1 target-window-v1 modifier-wait-v1");
 #ifdef HAVE_GIO
         printf(" portal-keysym-v1");
 #endif
