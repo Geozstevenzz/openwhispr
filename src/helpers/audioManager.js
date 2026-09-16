@@ -112,6 +112,7 @@ import {
   dictionaryPromptLimit,
   trimDictionaryPrompt,
   trimGroqDictionaryPrompt,
+  usesGroqPromptByteLimit,
 } from "../utils/dictionaryPromptCap.js";
 import { dictionaryKeywords, usesTranscriptionKeywords } from "../utils/dictionaryKeywords.js";
 import { getDictionaryHintWords } from "../utils/snippets";
@@ -3642,7 +3643,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       // larger context guard for the 4o transcribe models, which are LLMs and
       // read the whole thing. The cut is a request bound, not a priority rule:
       // Whisper decoders read the tail of whatever they are given.
-      const isGroqEndpoint = provider === "groq" || endpoint.includes("api.groq.com");
+      const isGroqEndpoint = usesGroqPromptByteLimit({ provider, endpoint });
       const maxPromptLength = dictionaryPromptLimit({ provider, endpoint, model });
       const whisperPrompt = this.getWhisperPrompt(apiSettings, usesKeywords ? null : dictionary);
       const trimmedPrompt = isGroqEndpoint

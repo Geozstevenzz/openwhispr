@@ -25,6 +25,15 @@ export const WHISPER_DECODER_PROMPT_CHARS = 550;
 // absurd list crowding out a long dictation, not a limit anyone should hit.
 export const TRANSCRIBE_PROMPT_CHARS = 8000;
 
+export function usesGroqPromptByteLimit({ provider = "", endpoint = "" } = {}) {
+  if (provider === "groq") return true;
+  try {
+    return new URL(endpoint).hostname === "api.groq.com";
+  } catch {
+    return false;
+  }
+}
+
 // Only the 4o transcribe family is known to read past a Whisper decoder's
 // prompt window, so it alone earns the generous budget. Everything else falls
 // back to the Whisper budget on purpose: custom and self-hosted endpoints take
@@ -32,7 +41,7 @@ export const TRANSCRIBE_PROMPT_CHARS = 8000;
 // Whisper-family under a name that never says "whisper".
 // Groq's budget is encoded bytes; the other provider budgets are characters.
 export function dictionaryPromptLimit({ provider = "", endpoint = "", model = "" } = {}) {
-  if (provider === "groq" || endpoint.includes("api.groq.com")) return GROQ_PROMPT_BYTES;
+  if (usesGroqPromptByteLimit({ provider, endpoint })) return GROQ_PROMPT_BYTES;
   if (model.toLowerCase().startsWith("gpt-4o")) return TRANSCRIBE_PROMPT_CHARS;
   return WHISPER_PROMPT_CHARS;
 }

@@ -335,6 +335,42 @@ test("Groq caps the final serialized prompt at 896 UTF-8 bytes", async (t) => {
   }
 });
 
+test("AudioManager applies the byte cap only to Groq selection or the exact Groq host", async (t) => {
+  const { setSettings, createManager } = await loadAudioManager(t, {
+    cachePrefix: "openwhispr-groq-endpoint-prompt-test-",
+    settingsKey: "__groqEndpointPromptSettings",
+  });
+  const audioBlob = new Blob([new Uint8Array([1, 2, 3, 4])], { type: "audio/webm" });
+  const cases = [
+    ["custom", "https://api.groq.com/openai/v1/audio/transcriptions", 448],
+    ["custom", "https://API.GROQ.COM/openai/v1/audio/transcriptions", 448],
+    ["custom", "https://stt.example/api.groq.com/audio/transcriptions", 900],
+    ["custom", "https://stt.example/audio/transcriptions?upstream=api.groq.com", 900],
+    ["custom", "https://proxy.api.groq.com/audio/transcriptions", 900],
+    ["custom", "https://api.groq.com.example/audio/transcriptions", 900],
+    ["groq", "https://stt.example/audio/transcriptions", 448],
+  ];
+  for (const [provider, endpoint, characters] of cases) {
+    await t.test(`${provider}: ${endpoint}`, async (t) => {
+      setSettings({
+        useLocalWhisper: false,
+        allowLocalFallback: false,
+        cloudTranscriptionProvider: provider,
+        cloudTranscriptionBaseUrl: endpoint,
+      });
+      const prompts = capturePrompts(t);
+      const manager = createManager({
+        getTranscriptionModel: () => "whisper-large-v3-turbo",
+        getTranscriptionEndpoint: () => endpoint,
+        getWhisperPrompt: () => "é".repeat(900),
+      });
+      const result = await manager.processWithOpenAIAPI(audioBlob, {});
+      assert.equal(result.success, true);
+      assert.deepEqual(prompts, ["é".repeat(characters)]);
+    });
+  }
+});
+
 test("Groq preserves Chinese bias and rejects an echo of the actual trimmed prompt", async (t) => {
   const { AudioManager, setSettings, createManager } = await loadAudioManager(t, {
     cachePrefix: "openwhispr-groq-prompt-echo-test-",
