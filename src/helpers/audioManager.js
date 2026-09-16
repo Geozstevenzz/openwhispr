@@ -108,7 +108,11 @@ import {
   matchesDictionaryPrompt,
   payloadSendsDictionaryBias,
 } from "../utils/dictionaryEchoFilter.js";
-import { dictionaryPromptLimit, trimDictionaryPrompt } from "../utils/dictionaryPromptCap.js";
+import {
+  dictionaryPromptLimit,
+  trimDictionaryPrompt,
+  trimGroqDictionaryPrompt,
+} from "../utils/dictionaryPromptCap.js";
 import { dictionaryKeywords, usesTranscriptionKeywords } from "../utils/dictionaryKeywords.js";
 import { getDictionaryHintWords } from "../utils/snippets";
 import { normalizeAgentSelectionContext } from "../utils/agentSelectionContext";
@@ -3634,15 +3638,16 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       const dictionary = this.getCustomDictionaryPrompt();
 
       // Prompt budgets follow each provider's real limit (see dictionaryPromptCap):
-      // Groq's 896-char request cap, the Whisper decoders' window, and a far
+      // Groq's 896-byte request cap, the Whisper decoders' window, and a far
       // larger context guard for the 4o transcribe models, which are LLMs and
       // read the whole thing. The cut is a request bound, not a priority rule:
       // Whisper decoders read the tail of whatever they are given.
-      const MAX_PROMPT_CHARS = dictionaryPromptLimit({ provider, endpoint, model });
-      const trimmedPrompt = trimDictionaryPrompt(
-        this.getWhisperPrompt(apiSettings, usesKeywords ? null : dictionary),
-        MAX_PROMPT_CHARS
-      );
+      const isGroqEndpoint = provider === "groq" || endpoint.includes("api.groq.com");
+      const maxPromptLength = dictionaryPromptLimit({ provider, endpoint, model });
+      const whisperPrompt = this.getWhisperPrompt(apiSettings, usesKeywords ? null : dictionary);
+      const trimmedPrompt = isGroqEndpoint
+        ? trimGroqDictionaryPrompt(whisperPrompt)
+        : trimDictionaryPrompt(whisperPrompt, maxPromptLength);
       const dictionaryPrompt = trimmedPrompt.prompt;
       if (dictionaryPrompt) {
         if (trimmedPrompt.truncated) {
@@ -3651,7 +3656,13 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
             {
               originalLength: trimmedPrompt.originalLength,
               truncatedLength: dictionaryPrompt.length,
-              maxChars: MAX_PROMPT_CHARS,
+              ...(isGroqEndpoint
+                ? {
+                    originalBytes: trimmedPrompt.originalBytes,
+                    truncatedBytes: trimmedPrompt.byteLength,
+                    maxBytes: maxPromptLength,
+                  }
+                : { maxChars: maxPromptLength }),
             },
             "transcription"
           );
@@ -3801,7 +3812,10 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
       // Check for text - handle both empty string and missing field
       if (result.text && result.text.trim().length > 0) {
-        if (this.isDictionaryEcho(result.text)) {
+        if (
+          (isGroqEndpoint && matchesDictionaryPrompt(result.text, dictionaryPrompt)) ||
+          this.isDictionaryEcho(result.text)
+        ) {
           throw dictionaryEchoError();
         }
         timings.transcriptionProcessingDurationMs = Math.round(performance.now() - apiCallStart);
