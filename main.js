@@ -1417,7 +1417,7 @@ async function startApp() {
     // A hands-free stop on bare Fn is deferred to the release: if the press
     // turns out to be an Fn combo (globe-interrupted), the hands-free
     // dictation keeps running instead of being stopped mid-sentence.
-    let globePendingHandsFreeStop = false;
+    let globePendingHandsFreeStop = null;
     const MIN_HOLD_DURATION_MS = 150;
     const POST_STOP_COOLDOWN_MS = 300;
 
@@ -1428,6 +1428,11 @@ async function startApp() {
       if (hotkeyManager.isInListeningMode()) return;
       if (windowManager.getSlotActivationMode(slotName) === "push") {
         if (!isLiveWindow(windowManager.mainWindow)) return;
+        if (windowManager.isDictationProcessing()) return;
+        if (isGlobeLikeHotkey(key) && windowManager.isHandsFreeActive(inputKind)) {
+          globePendingHandsFreeStop = inputKind;
+          return;
+        }
         windowManager.startNativePushToTalk(key, inputKind);
       } else {
         sendToggle();
@@ -1447,6 +1452,7 @@ async function startApp() {
       if (isLiveWindow(windowManager.controlPanelWindow)) {
         windowManager.controlPanelWindow.webContents.send("globe-key-pressed");
       }
+      if (hotkeyManager.isInListeningMode()) return;
 
       // Handle dictation if Globe/Fn is one of the dictation hotkeys
       const dictationUsesGlobe = hotkeyManager.getSlotHotkeys("dictation").some(isGlobeLikeHotkey);
@@ -1459,7 +1465,7 @@ async function startApp() {
           const activationMode = windowManager.getActivationMode();
           if (activationMode === "push") {
             if (windowManager.isHandsFreeActive("dictation")) {
-              globePendingHandsFreeStop = true;
+              globePendingHandsFreeStop = "dictation";
               return;
             }
             const verdict = windowManager.handlePushGestureDown("dictation");
@@ -1520,9 +1526,10 @@ async function startApp() {
       }
 
       if (globePendingHandsFreeStop) {
-        globePendingHandsFreeStop = false;
+        const inputKind = globePendingHandsFreeStop;
+        globePendingHandsFreeStop = null;
         globeLastStopTime = Date.now();
-        windowManager.stopHandsFreeSession("dictation");
+        windowManager.stopHandsFreeSession(inputKind);
       }
 
       if (hotkeyManager.getSlotHotkeys("dictation").some(isGlobeLikeHotkey)) {
@@ -1565,7 +1572,7 @@ async function startApp() {
     globeKeyManager.on("globe-interrupted", () => {
       // The Fn press was a navigation combo: a hands-free stop pending on its
       // release is called off — the dictation keeps running.
-      globePendingHandsFreeStop = false;
+      globePendingHandsFreeStop = null;
       // A globe-keyed agent/translation Hold session (shared native machine)
       // and any pending double-press gesture on a globe-bound slot unwind
       // first — the quick tap that primed them was the start of an Fn combo.
@@ -1874,7 +1881,7 @@ async function startApp() {
     // Reset native key state when hotkey changes
     ipcMain.on("hotkey-changed", (_event, _newHotkey) => {
       windowManager.resetNativePushState();
-      globePendingHandsFreeStop = false;
+      globePendingHandsFreeStop = null;
       globeKeyDownTime = 0;
       globeKeyIsRecording = false;
       globeLastStopTime = 0;

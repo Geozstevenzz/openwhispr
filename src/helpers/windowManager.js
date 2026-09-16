@@ -652,13 +652,24 @@ class WindowManager {
     if (this.macCompoundPushState?.active || this.isDictationProcessing()) {
       return;
     }
-    if (this.handlePushGestureDown(inputKind) !== "proceed") return;
-    if (this._shouldBlockDictationInput(inputKind)) return;
-
     const requiredModifiers = this.getMacRequiredModifiers(hotkey);
     if (requiredModifiers.size === 0) {
       return;
     }
+
+    const verdict = this.handlePushGestureDown(inputKind);
+    if (verdict === "latch" || verdict === "stop-hands-free") {
+      // Carbon repeats the down callback while a chord is held. A latch or
+      // stop still owns that physical press until a required modifier lifts.
+      this.macCompoundPushState = {
+        active: true,
+        requiredModifiers,
+        inputKind,
+        gestureHandled: true,
+      };
+      return;
+    }
+    if (verdict !== "proceed" || this._shouldBlockDictationInput(inputKind)) return;
 
     const MIN_HOLD_DURATION_MS = 150;
     const MAX_PUSH_DURATION_MS = 300000; // 5 minutes max recording
@@ -709,8 +720,14 @@ class WindowManager {
       clearTimeout(this.macCompoundPushState.safetyTimeoutId);
     }
 
-    const { isRecording: wasRecording, inputKind, downTime } = this.macCompoundPushState;
+    const {
+      isRecording: wasRecording,
+      inputKind,
+      downTime,
+      gestureHandled,
+    } = this.macCompoundPushState;
     this.macCompoundPushState = null;
+    if (gestureHandled) return;
 
     if (wasRecording) {
       this.sendStopDictation();
@@ -739,8 +756,9 @@ class WindowManager {
       clearTimeout(this.macCompoundPushState.safetyTimeoutId);
     }
 
-    const wasRecording = this.macCompoundPushState.isRecording;
+    const { isRecording: wasRecording, gestureHandled } = this.macCompoundPushState;
     this.macCompoundPushState = null;
+    if (gestureHandled) return;
 
     this._notifyPushForceStopped(reason);
 
@@ -944,6 +962,7 @@ class WindowManager {
   }
 
   resetNativePushState() {
+    if (this.macCompoundPushState?.gestureHandled) this.macCompoundPushState = null;
     // Flush what the gesture state governed before dropping it: a pending
     // quick-release still owns a warm preparation, and a latched hands-free
     // recording has no other stop path once the tracker forgets it.
