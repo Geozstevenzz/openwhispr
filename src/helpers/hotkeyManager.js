@@ -144,32 +144,17 @@ class HotkeyManager extends EventEmitter {
       return false;
     }
 
-    this.slotActivationModes[slotName] = nextMode;
-    // KGlobalAccel reports press and release for every action regardless of
-    // mode, so only GNOME binds a slot differently per mode — and macOS, where
-    // a plain key changes owner with the mode (Carbon hot key on Tap, the
-    // listener's event tap on Hold).
-    if (hotkey && callback && this.useGnome && this.gnomeManager) {
-      const result = await this.registerSlot(slotName, hotkey, callback);
+    if (hotkey && callback && (this.useGnome || this._macSlotNeedsReregister(slotName))) {
+      const result = await this.registerSlot(slotName, this.getSlotHotkeys(slotName), callback, {
+        atomic: true,
+        activationMode: nextMode,
+      });
       if (!result.success) {
-        this.slotActivationModes[slotName] = previousMode;
-        await this.registerSlot(slotName, hotkey, callback);
-        if (notifyFailure) {
-          this.notifyHotkeyFailure(hotkey, { error: result.error });
-        }
+        if (notifyFailure) this.notifyHotkeyFailure(hotkey, { error: result.error });
         return false;
       }
-    } else if (this._macSlotNeedsReregister(slotName)) {
-      if (!this._reregisterSlotShortcuts(slotName)) {
-        this.slotActivationModes[slotName] = previousMode;
-        this._reregisterSlotShortcuts(slotName);
-        if (notifyFailure) {
-          this.notifyHotkeyFailure(hotkey, {
-            error: i18nMain.t("hotkey.errors.registrationFailed", { hotkey }),
-          });
-        }
-        return false;
-      }
+    } else {
+      this.slotActivationModes[slotName] = nextMode;
     }
     return true;
   }
@@ -285,177 +270,215 @@ class HotkeyManager extends EventEmitter {
     return suggestions.filter((s) => s !== failedHotkey).slice(0, 3);
   }
 
-  async registerSlot(slotName, hotkeyInput, callback, options) {
+  _queueSlotUpdate(slotName, update) {
+    this._slotUpdates ??= new Map();
+    const previous = this._slotUpdates.get(slotName);
+    const pending = previous ? previous.then(update, update) : Promise.resolve().then(update);
+    this._slotUpdates.set(slotName, pending);
+    return pending.finally(() => {
+      if (this._slotUpdates.get(slotName) === pending) this._slotUpdates.delete(slotName);
+    });
+  }
+
+  registerSlot(slotName, hotkeyInput, callback, options = {}) {
+    return this._queueSlotUpdate(slotName, () =>
+      this._registerSlot(slotName, hotkeyInput, callback, options)
+    );
+  }
+
+  async _registerSlot(slotName, hotkeyInput, callback, options = {}) {
     const hotkeys = parseHotkeyList(hotkeyInput);
-    if (hotkeys.length === 0) {
-      return {
-        success: false,
-        error: i18nMain.t("hotkey.errors.registrationFailed", {
-          hotkey: String(hotkeyInput ?? ""),
-        }),
-      };
-    }
-    // GNOME/KDE/Hyprland bind one accelerator per slot, so they use the primary
-    // (first) hotkey; the globalShortcut path below registers the whole list.
     const hotkey = hotkeys[0];
-    if (
-      hotkeys.length > 1 &&
-      ((this.useGnome && GNOME_NATIVE_SLOTS.has(slotName)) ||
-        (this.useKDE && slotName !== "cancel"))
-    ) {
-      debugLogger.log(
-        `[HotkeyManager] Slot "${slotName}" has ${hotkeys.length} hotkeys but this Linux desktop backend only applies the primary ("${hotkey}")`
-      );
+    const failure = {
+      success: false,
+      error: i18nMain.t("hotkey.errors.registrationFailed", { hotkey: hotkey || "" }),
+    };
+    if (!hotkey || !callback) return failure;
+    const nativeGnome = this.useGnome && this.gnomeManager && GNOME_NATIVE_SLOTS.has(slotName);
+    const nativeKde = this.useKDE && this.kdeManager && slotName !== "cancel";
+    const previous = this.slots.get(slotName);
+    const previousHotkeys = [...(previous?.hotkeys || [])];
+    const previousCallback = previous?.callback;
+    const previousMode = this.getSlotActivationMode(slotName);
+    const nextMode =
+      SLOT_MODE_PUSH_SLOTS.has(slotName) && options.activationMode
+        ? options.activationMode === "push"
+          ? "push"
+          : "tap"
+        : previousMode;
+    const appliedKeys = nativeGnome || nativeKde ? [hotkey] : hotkeys;
+    if (options.atomic || nativeGnome || nativeKde) {
+      for (const key of appliedKeys) {
+        const conflict = this._findSlotConflict(slotName, key);
+        if (conflict) return conflict;
+      }
     }
+    const nativeOnlyKeys = appliedKeys.filter(
+      (key) => this.requiresNativeKeyListener(key, slotName) && this.isNativeOnlyHotkey(key)
+    );
+    if (nativeOnlyKeys.length && this.nativeKeyManager) {
+      try {
+        const ready = await this.nativeKeyManager.ensureReady(nativeOnlyKeys);
+        if (!ready && options.atomic) return failure;
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    }
+    if (nextMode === "push" && appliedKeys.some((key) => !this.supportsPushToTalk(key, slotName))) {
+      return { ...failure, error: this.getPushToTalkUnavailableReason(hotkey, slotName) };
+    }
+    if (SLOT_MODE_PUSH_SLOTS.has(slotName)) this.slotActivationModes[slotName] = nextMode;
 
-    // On GNOME (X11 or Wayland), route named slots through native gsettings —
-    // or, for a slot on Hold, through the GlobalShortcuts portal, the only
-    // GNOME source of press/release phases.
-    if (this.useGnome && this.gnomeManager && GNOME_NATIVE_SLOTS.has(slotName)) {
-      const pushToTalk = this._slotWantsPushToTalk(slotName);
-      const gnomeHotkey = GnomeShortcutManager.convertToGnomeFormat(hotkey);
-      if (!pushToTalk && !gnomeHotkey) {
-        debugLogger.log(
-          `[HotkeyManager] Could not convert hotkey "${hotkey}" to GNOME format for slot "${slotName}"`
+    let mutated = false;
+    const registerNative = async (key, handler, mode) => {
+      if (nativeKde) {
+        const result = await this.kdeManager.registerKeybinding(
+          key,
+          slotName,
+          handler,
+          mode === "push",
+          {
+            onMutation: () => {
+              mutated = true;
+            },
+          }
         );
-        return {
-          success: false,
-          error: i18nMain.t("hotkey.errors.registrationFailed", { hotkey }),
-        };
+        return result === true
+          ? { success: true }
+          : {
+              success: false,
+              error: KDE_FAILURE_REASONS[result]?.(key) || failure.error,
+            };
       }
-
-      this.unregisterSlot(slotName);
-
-      if (slotName === "meeting") {
-        this.gnomeManager.setMeetingCallback(callback);
-      } else if (slotName === "voiceAgent") {
-        this.gnomeManager.setVoiceAgentCallback(callback);
-      } else if (slotName === "translation") {
-        this.gnomeManager.setTranslationCallback(callback);
-      }
-
+      const shortcut = GnomeShortcutManager.convertToGnomeFormat(key);
+      if (mode === "tap" && !shortcut) return failure;
+      mutated = true;
       let success;
-      if (pushToTalk) {
-        success = await this.gnomeManager.registerPushToTalk(hotkey, callback, slotName);
+      if (mode === "push") {
+        success = await this.gnomeManager.registerPushToTalk(key, handler, slotName);
       } else {
-        // A slot leaving Hold must release its portal binding, or the portal
-        // would keep delivering phases beside the gsettings toggle.
-        await this.gnomeManager.unregisterPushToTalk?.(slotName);
-        success = await this.gnomeManager.registerKeybinding(gnomeHotkey, slotName);
+        if ((await this.gnomeManager.unregisterPushToTalk?.(slotName)) === false) return failure;
+        success = await this.gnomeManager.registerKeybinding(shortcut, slotName);
       }
-      if (!success) {
-        debugLogger.log(
-          `[HotkeyManager] GNOME keybinding registration failed for slot "${slotName}" ("${hotkey}")`
-        );
-        return {
-          success: false,
-          error: i18nMain.t("hotkey.errors.registrationFailed", { hotkey }),
-        };
+      if (success) {
+        if (slotName === "meeting") this.gnomeManager.setMeetingCallback(handler);
+        else if (slotName === "voiceAgent") this.gnomeManager.setVoiceAgentCallback(handler);
+        else if (slotName === "translation") this.gnomeManager.setTranslationCallback(handler);
       }
+      return success ? { success: true } : failure;
+    };
 
-      const slot = this._ensureSlot(slotName);
-      slot.hotkeys = [hotkey];
-      slot.callback = callback;
-      slot.accelerators = [];
-      this.slots.set(slotName, slot);
-
-      debugLogger.log(
-        `[HotkeyManager] GNOME slot "${slotName}" set to "${hotkey}" (GNOME format: "${gnomeHotkey}")`
-      );
-      return { success: true, hotkey };
+    let result;
+    try {
+      result =
+        nativeGnome || nativeKde
+          ? await registerNative(hotkey, callback, nextMode)
+          : this.setupShortcuts(hotkeys, callback, slotName, options);
+    } catch (error) {
+      result = { success: false, error: error.message, failedShortcutIds: error.failedShortcutIds };
     }
-
-    // On KDE (X11 or Wayland), route persistent slots through KGlobalAccel D-Bus.
-    // Temporary slots like "cancel" stay on globalShortcut to avoid stale
-    // KGlobalAccel registrations after crash (Escape would stop working system-wide).
-    if (this.useKDE && this.kdeManager && slotName !== "cancel") {
-      this.unregisterSlot(slotName);
-
-      const result = await this.kdeManager.registerKeybinding(
-        hotkey,
-        slotName,
-        callback,
-        this._slotWantsPushToTalk(slotName)
-      );
-      if (result !== true) {
-        const reason =
-          KDE_FAILURE_REASONS[result]?.(hotkey) ||
-          i18nMain.t("hotkey.errors.registrationFailed", { hotkey });
-        debugLogger.log(
-          `[HotkeyManager] KDE keybinding registration failed for slot "${slotName}" ("${hotkey}")`,
-          { reason: result }
-        );
-        return { success: false, error: reason };
-      }
-
-      const slot = this._ensureSlot(slotName);
-      slot.hotkeys = [hotkey];
-      slot.callback = callback;
-      slot.accelerators = [];
-      this.slots.set(slotName, slot);
-
-      debugLogger.log(`[HotkeyManager] KDE slot "${slotName}" set to "${hotkey}"`);
-      return { success: true, hotkey };
-    }
-
-    const result = this.setupShortcuts(hotkeys, callback, slotName, options);
     if (result.success) {
-      const slot = this._ensureSlot(slotName);
-      slot.callback = callback;
-      this.slots.set(slotName, slot);
+      if (nativeGnome || nativeKde) {
+        this.slots.set(slotName, { hotkeys: [hotkey], callback, accelerators: [] });
+      }
+      return { ...result, hotkey: result.hotkey || hotkey, activationMode: nextMode };
+    }
+
+    if (SLOT_MODE_PUSH_SLOTS.has(slotName)) this.slotActivationModes[slotName] = previousMode;
+    if (result.failedShortcutIds?.length) {
+      this._forgetFailedPortalSlots(result.failedShortcutIds, result.error);
+      if (previousMode === "push") return { ...result, rollbackFailed: true };
+    }
+    if (mutated) {
+      let restored = previousHotkeys.length === 0;
+      try {
+        if (previousHotkeys.length) {
+          restored = (await registerNative(previousHotkeys[0], previousCallback, previousMode))
+            .success;
+        } else if (nativeKde) {
+          restored = (await this.kdeManager.unregisterKeybinding(slotName)) !== false;
+        } else {
+          const tapRemoved = await this.gnomeManager.unregisterKeybinding(slotName);
+          const pushRemoved = await this.gnomeManager.unregisterPushToTalk?.(slotName);
+          restored = tapRemoved !== false && pushRemoved !== false;
+        }
+      } catch (error) {
+        restored = false;
+        this._forgetFailedPortalSlots(error.failedShortcutIds || [], error.message);
+      }
+      if (!restored) {
+        this.slots.set(slotName, { hotkeys: [], callback: null, accelerators: [] });
+        this.notifyHotkeyFailure(previousHotkeys[0] || hotkey, { error: result.error });
+        return { ...result, rollbackFailed: true };
+      }
     }
     return result;
   }
 
+  _forgetFailedPortalSlots(slotNames, error) {
+    for (const slotName of slotNames) {
+      if (this.getSlotActivationMode(slotName) !== "push") continue;
+      const hotkey = this.getSlotHotkey(slotName);
+      this.slots.set(slotName, { hotkeys: [], callback: null, accelerators: [] });
+      if (hotkey) this.notifyHotkeyFailure(hotkey, { error });
+    }
+  }
+
   unregisterSlot(slotName) {
+    const nativeKde = this.useKDE && this.kdeManager && slotName !== "cancel";
+    const nativeGnome = this.useGnome && this.gnomeManager && GNOME_NATIVE_SLOTS.has(slotName);
+    if (nativeKde || nativeGnome) {
+      return this._queueSlotUpdate(slotName, async () => {
+        const slot = this.slots.get(slotName);
+        if (!slot?.hotkeys?.length) return true;
+        let removalError;
+        try {
+          if (nativeKde) {
+            if ((await this.kdeManager.unregisterKeybinding(slotName)) === false) return false;
+          } else {
+            const tapRemoved = await this.gnomeManager.unregisterKeybinding(slotName);
+            const pushRemoved = await this.gnomeManager.unregisterPushToTalk?.(slotName);
+            if (tapRemoved === false || pushRemoved === false) {
+              removalError = new Error("Native shortcut removal failed");
+            }
+          }
+        } catch (error) {
+          removalError = error;
+        }
+        if (removalError) {
+          debugLogger.warn(
+            `[HotkeyManager] Could not unregister slot "${slotName}":`,
+            removalError.message
+          );
+          this._forgetFailedPortalSlots(removalError.failedShortcutIds || [], removalError.message);
+          if (removalError.failedShortcutIds?.includes(slotName)) return false;
+          const restored = await this._registerSlot(slotName, slot.hotkeys, slot.callback, {
+            atomic: true,
+          });
+          if (!restored.success) {
+            this.slots.set(slotName, { hotkeys: [], callback: null, accelerators: [] });
+            this.notifyHotkeyFailure(slot.hotkeys[0], { error: restored.error });
+          }
+          return false;
+        }
+        slot.hotkeys = [];
+        slot.accelerators = [];
+        return true;
+      });
+    }
     const slot = this.slots.get(slotName);
-    if (!slot || !(slot.hotkeys?.length || slot.accelerators?.length)) return;
-
-    // On KDE (X11 or Wayland), persistent slots are managed via KGlobalAccel
-    if (this.useKDE && this.kdeManager && slotName !== "cancel") {
-      this.kdeManager.unregisterKeybinding(slotName).catch((err) => {
-        debugLogger.warn(
-          `[HotkeyManager] Error unregistering KDE keybinding for slot "${slotName}":`,
-          err.message
-        );
-      });
-      slot.hotkeys = [];
-      slot.accelerators = [];
-      return;
-    }
-
-    // On GNOME, native slots are managed via gsettings (Tap) or the portal
-    // (Hold), not globalShortcut. The portal serialises its own calls, so a
-    // registration queued right after this lands in order.
-    if (this.useGnome && this.gnomeManager && GNOME_NATIVE_SLOTS.has(slotName)) {
-      this.gnomeManager.unregisterKeybinding(slotName).catch((err) => {
-        debugLogger.warn(
-          `[HotkeyManager] Error unregistering GNOME keybinding for slot "${slotName}":`,
-          err.message
-        );
-      });
-      Promise.resolve(this.gnomeManager.unregisterPushToTalk?.(slotName)).catch((err) => {
-        debugLogger.warn(
-          `[HotkeyManager] Error unregistering GNOME portal shortcut for slot "${slotName}":`,
-          err.message
-        );
-      });
-      slot.hotkeys = [];
-      slot.accelerators = [];
-      return;
-    }
-
-    // Release what was actually registered; native-listener entries are null.
-    for (const accel of slot.accelerators || []) {
-      if (!accel) continue;
+    if (!slot) return true;
+    for (const accelerator of slot.accelerators || []) {
+      if (!accelerator) continue;
       try {
-        globalShortcut.unregister(accel);
+        globalShortcut.unregister(accelerator);
       } catch {
-        // already unregistered
+        // Already unregistered during cleanup.
       }
     }
     slot.hotkeys = [];
     slot.accelerators = [];
+    return true;
   }
 
   // Primary (first) hotkey for a slot — back-compat for callers that expect a
@@ -902,7 +925,11 @@ class HotkeyManager extends EventEmitter {
           // already unregistered
         }
       });
-      this._restorePreviousHotkeys(previousHotkeys, previousAccelerators, callback);
+      this._restorePreviousHotkeys(
+        previousHotkeys,
+        previousAccelerators,
+        slot.callback || callback
+      );
       slot.hotkeys = previousHotkeys;
       slot.accelerators = previousAccelerators;
 

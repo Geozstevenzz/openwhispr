@@ -1263,7 +1263,9 @@ async function startApp() {
       }
       return { success: false, message: result.error };
     } else {
-      hotkeyManager.unregisterSlot("meeting");
+      if (!(await hotkeyManager.unregisterSlot("meeting"))) {
+        return { success: false, message: "Failed to clear meeting hotkey" };
+      }
       environmentManager.saveMeetingKey("");
       windowManager.reconcileNativeKeyListeners();
       return { success: true };
