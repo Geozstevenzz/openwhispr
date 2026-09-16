@@ -427,3 +427,98 @@ test("Groq preserves Chinese bias and rejects an echo of the actual trimmed prom
   assert.equal(result.rawText, responseText);
   assert.deepEqual(processed, [responseText]);
 });
+
+test("a shortened Groq prompt preserves speech and still rejects a full prompt echo", async (t) => {
+  const { setSettings, createManager } = await loadSharedAudioManager(t, {
+    cachePrefix: "openwhispr-groq-short-prompt-speech-test-",
+    settingsKey: "__groqShortPromptSpeechSettings",
+  });
+  const audioBlob = new Blob([new Uint8Array([1, 2, 3, 4])], { type: "audio/webm" });
+  // Dictionary import permits long phrases. Comma trimming drops this next
+  // entry entirely, leaving only four unique words in the transmitted prompt.
+  const longPhrase =
+    "Please arrange an appointment with the engineering team after reviewing the production service logs and preparing the quarterly report for our scheduled customer meeting. "
+      .repeat(6)
+      .trim();
+  const dictionary = ["OpenWhispr", "on my way", longPhrase, "Electron", "renderer", "TypeScript"];
+  const cases = [
+    ["ordinary short speech", "On my way.", false],
+    ["reordered shared vocabulary", "My way on OpenWhispr.", false],
+    ["a phrase spoken twice", "On my way, on my way.", false],
+    ["full sent-prompt echo", "OpenWhispr, on my way", true],
+    ["echo with case, punctuation and spacing changes", "  OPENWHISPR  ON MY WAY. ", true],
+  ];
+
+  for (const provider of ["groq", "custom"]) {
+    for (const [name, responseText, echo] of cases) {
+      await t.test(`${provider}: ${name}`, async (t) => {
+        setSettings({
+          useLocalWhisper: false,
+          allowLocalFallback: false,
+          cloudTranscriptionMode: "byok",
+          cloudTranscriptionProvider: provider,
+          cloudTranscriptionModel: "whisper-large-v3-turbo",
+          cloudTranscriptionBaseUrl: "https://api.groq.com/openai/v1",
+          preferredLanguage: "en",
+          customDictionary: dictionary,
+          snippets: [{ trigger: "on my way", replacement: "I will be there soon." }],
+          useCleanupModel: false,
+          useDictationAgent: false,
+        });
+        const originalFetch = globalThis.fetch;
+        t.after(() => {
+          globalThis.fetch = originalFetch;
+        });
+        let requests = 0;
+        globalThis.fetch = async (endpoint, init) => {
+          requests++;
+          assert.equal(endpoint, "https://api.groq.com/openai/v1/audio/transcriptions");
+          assert.equal(init.body.get("model"), "whisper-large-v3-turbo");
+          assert.deepEqual(await serializePrompt(endpoint, init), {
+            prompt: "OpenWhispr, on my way",
+            promptBytes: 21,
+          });
+          return Response.json({ text: responseText });
+        };
+        const completed = [];
+        const failures = [];
+        const errors = [];
+        let noAudioCount = 0;
+        const manager = createManager({
+          getAPIKey: async () => "test-key",
+          isReasoningAvailable: async () => false,
+          isProcessing: true,
+          lastAudioBlob: audioBlob,
+          onTranscriptionComplete: (result) => completed.push(result),
+          saveFailedTranscription: (message, code) => failures.push({ message, code }),
+          onError: (error) => errors.push(error),
+          onNoAudio: () => noAudioCount++,
+        });
+        assert.equal(
+          manager.isDictionaryEcho(responseText),
+          false,
+          "the original full-dictionary check must not decide this case"
+        );
+
+        await manager.processAudio(audioBlob, { durationSeconds: 2 });
+
+        assert.equal(requests, 1);
+        assert.deepEqual(errors, []);
+        assert.equal(manager.isProcessing, false);
+        assert.equal(manager.getCustomDictionaryPrompt(), [...dictionary, "on my way"].join(", "));
+        if (echo) {
+          assert.deepEqual(completed, []);
+          assert.deepEqual(failures, [{ message: "No audio detected", code: "DICTIONARY_ECHO" }]);
+          assert.equal(noAudioCount, 1);
+        } else {
+          assert.equal(completed.length, 1, "valid speech must reach the completion callback");
+          assert.equal(completed[0].success, true);
+          assert.equal(completed[0].rawText, responseText);
+          assert.equal(completed[0].text, responseText);
+          assert.deepEqual(failures, []);
+          assert.equal(noAudioCount, 0);
+        }
+      });
+    }
+  }
+});

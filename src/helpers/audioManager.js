@@ -105,6 +105,7 @@ import {
   analyzeDictionaryPromptFragment,
   DICTIONARY_ECHO_CODE,
   dictionaryEchoError,
+  matchesExactDictionaryPrompt,
   matchesDictionaryPrompt,
   payloadSendsDictionaryBias,
 } from "../utils/dictionaryEchoFilter.js";
@@ -3814,7 +3815,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       // Check for text - handle both empty string and missing field
       if (result.text && result.text.trim().length > 0) {
         if (
-          (isGroqEndpoint && matchesDictionaryPrompt(result.text, dictionaryPrompt)) ||
+          (isGroqEndpoint && matchesExactDictionaryPrompt(result.text, dictionaryPrompt)) ||
           this.isDictionaryEcho(result.text)
         ) {
           throw dictionaryEchoError();
