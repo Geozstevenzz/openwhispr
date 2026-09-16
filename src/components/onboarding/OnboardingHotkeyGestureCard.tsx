@@ -8,13 +8,14 @@ interface OnboardingHotkeyGestureCardProps {
   hotkey: string;
   mode: "tap" | "push";
   platform: Platform;
+  isUsingNativeShortcut: boolean;
   supportsPushToTalk: boolean;
   pushToTalkUnavailableReason?: string | null;
 }
 
 /**
- * Reveals the two gestures only after a user has accepted the slot's shortcut.
- * Linux keeps the existing setup notice when the native listener is unavailable.
+ * Teaches the gestures once, after the Dictation shortcut is confirmed.
+ * Linux keeps the listener setup notice only for non-native shortcuts.
  */
 export default function OnboardingHotkeyGestureCard({
   confirmed,
@@ -22,10 +23,19 @@ export default function OnboardingHotkeyGestureCard({
   hotkey,
   mode,
   platform,
+  isUsingNativeShortcut,
   supportsPushToTalk,
   pushToTalkUnavailableReason,
 }: OnboardingHotkeyGestureCardProps) {
   if (!confirmed || !hotkey) return null;
+
+  if (slot === "voiceAgent") {
+    return platform === "linux" && !supportsPushToTalk && pushToTalkUnavailableReason ? (
+      <p role="status" className="mx-auto mt-3 max-w-sm text-sm text-muted-foreground">
+        {pushToTalkUnavailableReason}
+      </p>
+    ) : null;
+  }
 
   return (
     <div
@@ -37,7 +47,9 @@ export default function OnboardingHotkeyGestureCard({
         mode={supportsPushToTalk ? mode : "tap"}
         pushToTalkUnavailableReason={pushToTalkUnavailableReason}
       />
-      {platform === "linux" && <LinuxPttSetupInfo isAvailable={supportsPushToTalk} />}
+      {platform === "linux" && !isUsingNativeShortcut && (
+        <LinuxPttSetupInfo isAvailable={supportsPushToTalk} />
+      )}
     </div>
   );
 }

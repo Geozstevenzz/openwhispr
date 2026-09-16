@@ -56,7 +56,7 @@ test("onboarding permission checks use the resolved macOS feature gate", () => {
   );
 });
 
-test("both shortcut steps reveal the shared gesture card instead of an activation selector", () => {
+test("both shortcut steps pass their slot to the gesture guidance instead of an activation selector", () => {
   const source = readFileSync("src/components/OnboardingFlow.tsx", "utf8");
 
   assert.match(source, /OnboardingHotkeyGestureCard/);

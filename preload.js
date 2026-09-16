@@ -70,6 +70,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ? ipcRenderer.send("mac-accessibility-features-ready", expectedAccountScope)
       : ipcRenderer.send("mac-accessibility-features-ready"),
   beginOnboardingDemo: (session) => ipcRenderer.invoke("onboarding-demo-begin", session),
+  getOnboardingDemoSession: () => ipcRenderer.invoke("onboarding-demo-session"),
   endOnboardingDemo: (id) => ipcRenderer.invoke("onboarding-demo-end", id),
   stopOnboardingDemo: (id) => ipcRenderer.invoke("onboarding-demo-stop", id),
   publishOnboardingDemoEvent: (event) => ipcRenderer.invoke("onboarding-demo-publish", event),

@@ -11,6 +11,7 @@ import ShortcutSetupStep from "./onboarding/ShortcutSetupStep";
 import OnboardingHotkeyGestureCard from "./onboarding/OnboardingHotkeyGestureCard";
 import AssistantHotkeyPreview from "./onboarding/AssistantHotkeyPreview";
 import DemoStep from "./onboarding/DemoStep";
+import { getOnboardingDemoAuthStatus } from "../utils/onboardingDemo";
 import CalendarConnectionsStep from "./onboarding/CalendarConnectionsStep";
 import SetupChoiceStep from "./onboarding/SetupChoiceStep";
 import { ByokProviderStep, LocalModelSetupStep } from "./onboarding/ProviderSetupStep";
@@ -29,7 +30,7 @@ import { useWorkspace } from "../hooks/useWorkspace";
 import { useRequiredLocalModels } from "../hooks/useRequiredLocalModels";
 import { usePolicyStore } from "../stores/policyStore";
 import { isAgentAllowed, isScreenContextAllowed } from "../stores/policyRules";
-import { useSettingsStore } from "../stores/settingsStore";
+import { selectPolicyEffectiveSettings, useSettingsStore } from "../stores/settingsStore";
 import { getDefaultHotkey, parseHotkeyList, serializeHotkeyList } from "../utils/hotkeys";
 import {
   formatHotkeyInstruction,
@@ -49,6 +50,7 @@ import { signOut } from "../lib/auth";
 import logger from "../utils/logger";
 import {
   COMPACT_STEPS,
+  ONBOARDING_SESSION_KEY,
   getNextOnboardingStep,
   getNotesFooterAction,
   getOnboardingProgress,
@@ -94,11 +96,12 @@ function DemoHotkeyDescription({ text, hotkey }: { text: string; hotkey: string 
 export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const { t } = useTranslation();
   const platform = getPlatform();
-  const { isSignedIn } = useAuth();
+  const { isLoaded, isSignedIn } = useAuth();
   const agentAllowed = usePolicyStore(isAgentAllowed);
   const screenContextAllowed = usePolicyStore(isScreenContextAllowed);
   const settings = useSettings();
   const settingsStore = useSettingsStore();
+  const effectiveSettings = selectPolicyEffectiveSettings(settingsStore, usePolicyStore());
   const {
     session,
     setSession,
@@ -206,11 +209,13 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     request: requestScreenRecordingAccess,
   } = useScreenRecordingPermission();
   const {
+    isUsingNativeShortcut: dictationIsUsingNativeShortcut,
     supportsPushToTalk: dictationSupportsPushToTalk,
     pushToTalkUnavailableReason: dictationPushToTalkUnavailableReason,
     loaded: dictationHotkeyModeLoaded,
   } = useHotkeyModeInfo("onboarding-dictation", dictationHotkey, "dictation");
   const {
+    isUsingNativeShortcut: assistantIsUsingNativeShortcut,
     supportsPushToTalk: assistantSupportsPushToTalk,
     pushToTalkUnavailableReason: assistantPushToTalkUnavailableReason,
     loaded: assistantHotkeyModeLoaded,
@@ -1033,6 +1038,9 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
               hotkey={assistant ? assistantHotkey : dictationHotkey}
               mode={assistant ? voiceAgentActivationMode : activationMode}
               platform={platform}
+              isUsingNativeShortcut={
+                assistant ? assistantIsUsingNativeShortcut : dictationIsUsingNativeShortcut
+              }
               supportsPushToTalk={
                 assistant ? assistantSupportsPushToTalk : dictationSupportsPushToTalk
               }
@@ -1093,8 +1101,33 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
               description={<DemoHotkeyDescription text={description} hotkey={hotkeyInstruction} />}
             />
             <DemoStep
+              key={assistant ? "assistant" : "dictation"}
               kind={assistant ? "assistant" : "dictation"}
+              authStatus={getOnboardingDemoAuthStatus(
+                assistant ? "assistant" : "dictation",
+                effectiveSettings,
+                { isLoaded, isSignedIn }
+              )}
               initialSuccessful={assistant ? assistantDemoSuccess : dictationDemoSuccess}
+              initialDraft={
+                session.resume.demoRecoveryDrafts?.[assistant ? "assistant" : "dictation"]
+              }
+              onRecoveryDraft={(draft) => {
+                const next = {
+                  ...session,
+                  resume: {
+                    ...session.resume,
+                    demoRecoveryDrafts: {
+                      ...session.resume.demoRecoveryDrafts,
+                      [assistant ? "assistant" : "dictation"]: draft,
+                    },
+                  },
+                };
+                // Auth/policy reconciliation can remount the flow. Checkpoint
+                // before it starts so the practice text survives that boundary.
+                localStorage.setItem(ONBOARDING_SESSION_KEY, JSON.stringify(next));
+                setSession(next);
+              }}
               firstMessage={t(
                 assistant
                   ? "onboarding.rehaul.assistantDemo.email.body"

@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { useHotkeyModeInfo } from "../../hooks/useHotkeyModeInfo";
 import { parseHotkeyList } from "../../utils/hotkeys";
 import { HotkeyKeycaps } from "./HotkeyKeycaps";
+import { cn } from "../lib/utils";
 
 type HotkeySlot = "dictation" | "voiceAgent" | "translation";
 
@@ -51,11 +52,10 @@ function VerbChip({
 }) {
   return (
     <span
-      className={
-        accent
-          ? "hands-free-tip-badge inline-flex h-[22px] items-center gap-1 rounded-full px-2 text-[12px] font-medium"
-          : "inline-flex h-[22px] items-center gap-1 rounded-full bg-foreground/[0.07] px-2 text-[12px] font-medium text-muted-foreground"
-      }
+      className={cn(
+        "inline-flex h-[22px] cursor-default items-center gap-1 rounded-full px-2 text-[12px] font-medium [&_svg]:pointer-events-none",
+        accent ? "hands-free-tip-badge" : "bg-foreground/[0.07] text-muted-foreground"
+      )}
     >
       {icon}
       {label}
@@ -112,6 +112,7 @@ export function HotkeyGestureRowsContent({
             <VerbChip
               icon={<MicVocal className="size-3" aria-hidden="true" />}
               label={t("common.hold")}
+              accent
             />
             {plus}
             {keycaps}
@@ -126,7 +127,6 @@ export function HotkeyGestureRowsContent({
             <VerbChip
               icon={<Zap className="size-3" aria-hidden="true" />}
               label={t("settingsPage.general.hotkey.gestures.doublePress")}
-              accent
             />
             {plus}
             {keycaps}

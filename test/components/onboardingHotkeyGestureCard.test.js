@@ -17,6 +17,7 @@ async function render(t, props) {
       mode: "push",
       platform: "darwin",
       supportsPushToTalk: true,
+      isUsingNativeShortcut: false,
       ...props,
     })
   );
@@ -38,35 +39,92 @@ test("reveals Hold and hands-free guidance after confirmation", async (t) => {
   assert.doesNotMatch(markup, /onboarding\.rehaul\.dictationHotkey\.activation/);
 });
 
-test("uses the Linux setup notice when Hold is unavailable", async (t) => {
+test("an unavailable non-native Linux listener retains the setup command", async (t) => {
   const markup = await render(t, {
     confirmed: true,
     mode: "tap",
     platform: "linux",
     supportsPushToTalk: false,
+    isUsingNativeShortcut: false,
   });
 
   assert.match(markup, /settingsPage\.general\.hotkey\.linuxPttSetupTitle/);
   assert.match(markup, /sudo usermod -aG input \$USER/);
+  assert.match(markup, /gestures\.tapOnlyTitle/);
   assert.doesNotMatch(markup, /gestures\.holdTitle/);
   assert.doesNotMatch(markup, /gestures\.handsFreeTitle/);
 });
 
-test("the Voice Agent card uses its three-key shortcut in both gesture rows", async (t) => {
+for (const [backend, reason] of [
+  ["GNOME without Hold support", "Hold is unavailable on this GNOME version"],
+  ["native modifier restriction", "Control+Super is reserved by the OS"],
+]) {
+  test(`${backend} retains its reason and tap guidance without a setup command`, async (t) => {
+    const markup = await render(t, {
+      confirmed: true,
+      platform: "linux",
+      hotkey: "Control+Super",
+      supportsPushToTalk: false,
+      isUsingNativeShortcut: true,
+      pushToTalkUnavailableReason: reason,
+    });
+
+    assert.ok(markup.includes(reason));
+    assert.match(markup, /gestures\.tapOnlyTitle/);
+    assert.doesNotMatch(markup, /gestures\.(holdTitle|handsFreeTitle)/);
+    assert.doesNotMatch(markup, /linuxPttSetup|sudo usermod/);
+  });
+}
+
+for (const isUsingNativeShortcut of [true, false]) {
+  test(`supported ${isUsingNativeShortcut ? "native" : "non-native"} Linux retains Dictation gestures and animation`, async (t) => {
+    const markup = await render(t, {
+      confirmed: true,
+      platform: "linux",
+      supportsPushToTalk: true,
+      isUsingNativeShortcut,
+    });
+
+    assert.match(markup, /data-hotkey-slot="dictation"/);
+    assert.match(markup, /onboarding-gesture-reveal/);
+    assert.match(markup, /gestures\.holdTitle/);
+    assert.match(markup, /gestures\.handsFreeTitle/);
+    assert.doesNotMatch(markup, /gestures\.tapOnlyTitle|linuxPttSetup|sudo usermod/);
+  });
+}
+
+test("unsupported Hyprland Assistant retains only its reason", async (t) => {
+  const reason = "Hold is unavailable for this shortcut on Hyprland";
+  const markup = await render(t, {
+    confirmed: true,
+    slot: "voiceAgent",
+    platform: "linux",
+    hotkey: "Control+Super+Space",
+    supportsPushToTalk: false,
+    isUsingNativeShortcut: true,
+    pushToTalkUnavailableReason: reason,
+  });
+
+  assert.match(markup, /role="status"/);
+  assert.equal(markup.replace(/<[^>]*>/g, ""), reason);
+  assert.doesNotMatch(markup, /onboarding-hotkey-gesture-card|onboarding-gesture-reveal/);
+  assert.doesNotMatch(markup, /gestures\.|linuxPttSetup|sudo usermod/);
+});
+
+test("the Voice Agent shortcut does not repeat the Dictation gesture card", async (t) => {
   const markup = await render(t, {
     confirmed: true,
     slot: "voiceAgent",
     hotkey: "Command+Shift+Space",
   });
 
-  assert.match(markup, /settingsPage\.general\.hotkey\.gestures\.holdTitle/);
-  assert.equal((markup.match(/<kbd/g) || []).length, 6);
+  assert.equal(markup, "");
 });
 
 test("shortcut keycaps keep their physical order inside Arabic RTL", async (t) => {
   const markup = await render(t, {
     confirmed: true,
-    slot: "voiceAgent",
+    slot: "dictation",
     hotkey: "Command+Shift+Space",
   });
 

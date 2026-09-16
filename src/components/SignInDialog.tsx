@@ -8,15 +8,21 @@ import { signOut } from "../lib/auth";
 interface SignInDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onAuthComplete?: () => void;
 }
 
-export default function SignInDialog({ open, onOpenChange }: SignInDialogProps) {
+export default function SignInDialog({ open, onOpenChange, onAuthComplete }: SignInDialogProps) {
   const { t } = useTranslation();
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string | null>(null);
 
   const handleOpenChange = (next: boolean) => {
     if (!next) setPendingVerificationEmail(null);
     onOpenChange(next);
+  };
+
+  const complete = () => {
+    handleOpenChange(false);
+    onAuthComplete?.();
   };
 
   return (
@@ -27,7 +33,7 @@ export default function SignInDialog({ open, onOpenChange }: SignInDialogProps) 
         {pendingVerificationEmail ? (
           <EmailVerificationStep
             email={pendingVerificationEmail}
-            onVerified={() => handleOpenChange(false)}
+            onVerified={complete}
             onBack={() => {
               // Abandoning verification leaves a live session for the wrong
               // email; end it first or the remounted auth step auto-completes
@@ -38,7 +44,7 @@ export default function SignInDialog({ open, onOpenChange }: SignInDialogProps) 
           />
         ) : (
           <AuthenticationStep
-            onAuthComplete={() => handleOpenChange(false)}
+            onAuthComplete={complete}
             onNeedsVerification={setPendingVerificationEmail}
             embedded
           />
