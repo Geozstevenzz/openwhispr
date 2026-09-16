@@ -1899,6 +1899,14 @@
         "hyprlandConfigWriteWarningTitle": "Hyprland 键绑定不会持久保存",
         "hyprlandConfigWriteWarningDescription": "OpenWhispr 无法写入 {{path}}，因此键绑定不会在 Hyprland 配置重新加载后保留。请确保该文件存在且可写。",
         "hyprlandUnbindDescription": "在 Hyprland 上，OpenWhispr 会占用所选快捷键。OpenWhispr 注册快捷键时，任何使用相同组合键的现有 Hyprland 绑定都会被解除。",
+        "guide": {
+          "title": "两种说话方式",
+          "scope": "适用于{{shortcuts}}。",
+          "handsFreeStart": "开始免提模式",
+          "dictation": "听写",
+          "voiceAgent": "助手",
+          "translation": "翻译"
+        },
         "gestures": {
           "holdTitle": "按住说话",
           "holdDetail": "松开即结束",

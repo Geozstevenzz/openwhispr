@@ -2192,6 +2192,14 @@
         "hyprlandConfigWriteWarningTitle": "Hyprland-Tastenkombinationen werden nicht dauerhaft gespeichert",
         "hyprlandConfigWriteWarningDescription": "OpenWhispr kann nicht in {{path}} schreiben. Deshalb bleiben Tastenkombinationen nach einem Neuladen der Hyprland-Konfiguration nicht erhalten. Stellen Sie sicher, dass die Datei existiert und beschreibbar ist.",
         "hyprlandUnbindDescription": "Unter Hyprland beansprucht OpenWhispr die ausgewählte Tastenkombination. Jede vorhandene Hyprland-Belegung mit derselben Tastenkombination wird aufgehoben, wenn OpenWhispr seine Tastenkombination registriert.",
+        "guide": {
+          "title": "Zwei Möglichkeiten zum Sprechen",
+          "scope": "Für {{shortcuts}}.",
+          "handsFreeStart": "Freihändig starten",
+          "dictation": "Diktat",
+          "voiceAgent": "Assistent",
+          "translation": "Übersetzung"
+        },
         "gestures": {
           "holdTitle": "Halten zum Sprechen",
           "holdDetail": "Loslassen zum Beenden",

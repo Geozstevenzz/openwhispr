@@ -2964,6 +2964,14 @@
         "hyprlandConfigWriteWarningTitle": "لن يتم حفظ اختصارات Hyprland بشكل دائم",
         "hyprlandConfigWriteWarningDescription": "لا يمكن لـ OpenWhispr الكتابة إلى {{path}}، لذلك لن تبقى الاختصارات بعد إعادة تحميل تكوين Hyprland. تأكد من وجود الملف وقابليته للكتابة.",
         "hyprlandUnbindDescription": "في Hyprland، يستحوذ OpenWhispr على الاختصار المحدد. سيتم فك أي ارتباط Hyprland موجود يستخدم مجموعة المفاتيح نفسها عندما يسجل OpenWhispr اختصاره.",
+        "guide": {
+          "title": "طريقتان للتحدث",
+          "scope": "للاستخدام مع {{shortcuts}}.",
+          "handsFreeStart": "ابدأ دون استخدام اليدين",
+          "dictation": "الإملاء",
+          "voiceAgent": "المساعد",
+          "translation": "الترجمة"
+        },
         "gestures": {
           "holdTitle": "اضغط مع الاستمرار للتحدث",
           "holdDetail": "أفلت المفتاح للإنهاء",

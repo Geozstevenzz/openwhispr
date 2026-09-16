@@ -1903,6 +1903,14 @@
         "hyprlandConfigWriteWarningTitle": "Привязки клавиш Hyprland не будут сохраняться",
         "hyprlandConfigWriteWarningDescription": "OpenWhispr не может записывать в {{path}}, поэтому привязки клавиш не сохранятся после перезагрузки конфигурации Hyprland. Убедитесь, что файл существует и доступен для записи.",
         "hyprlandUnbindDescription": "В Hyprland OpenWhispr резервирует выбранное сочетание клавиш. Любая существующая привязка Hyprland, использующая ту же комбинацию, будет удалена, когда OpenWhispr зарегистрирует своё сочетание.",
+        "guide": {
+          "title": "Два способа говорить",
+          "scope": "Для {{shortcuts}}.",
+          "handsFreeStart": "Начать без удержания клавиши",
+          "dictation": "диктовки",
+          "voiceAgent": "ассистента",
+          "translation": "перевода"
+        },
         "gestures": {
           "holdTitle": "Удерживайте, чтобы говорить",
           "holdDetail": "Отпустите, чтобы закончить",

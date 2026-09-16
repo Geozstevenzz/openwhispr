@@ -200,3 +200,27 @@ test("update-hotkey persists a Hold-to-Tap convergence reported by the manager",
   await updateHotkeyHandler({ sender: {} }, "Command+Period");
   assert.deepEqual(savedActivationModes, ["tap"]);
 });
+
+test("an empty optional shortcut checks its backend without borrowing the dictation key", async () => {
+  await withPlatform("linux", async () => {
+    const originalHotkey = sharedHotkeyManager.getCurrentHotkey;
+    sharedHotkeyManager.getCurrentHotkey = () => "Control+Super";
+    sharedHotkeyManager.useKDE = true;
+    try {
+      assert.equal((await modeInfoHandler({ sender: {} })).supportsPushToTalk, false);
+      for (const slot of ["voiceAgent", "translation"]) {
+        assert.equal((await modeInfoHandler({ sender: {} }, "", slot)).supportsPushToTalk, true);
+      }
+      sharedHotkeyManager.useKDE = false;
+      sharedHotkeyManager.useHyprland = true;
+      assert.equal(
+        (await modeInfoHandler({ sender: {} }, "", "translation")).supportsPushToTalk,
+        false
+      );
+    } finally {
+      sharedHotkeyManager.getCurrentHotkey = originalHotkey;
+      sharedHotkeyManager.useKDE = false;
+      sharedHotkeyManager.useHyprland = false;
+    }
+  });
+});

@@ -1952,6 +1952,14 @@
         "hyprlandConfigWriteWarningTitle": "Los atajos de Hyprland no se conservarán",
         "hyprlandConfigWriteWarningDescription": "OpenWhispr no puede escribir en {{path}}, así que los atajos no sobrevivirán a una recarga de la configuración de Hyprland. Asegúrate de que el archivo exista y se pueda escribir.",
         "hyprlandUnbindDescription": "En Hyprland, OpenWhispr reserva el atajo seleccionado. Cualquier atajo existente de Hyprland que use la misma combinación de teclas se desvinculará cuando OpenWhispr registre su atajo.",
+        "guide": {
+          "title": "Dos formas de hablar",
+          "scope": "Para {{shortcuts}}.",
+          "handsFreeStart": "Iniciar en manos libres",
+          "dictation": "Dictado",
+          "voiceAgent": "Asistente",
+          "translation": "Traducción"
+        },
         "gestures": {
           "holdTitle": "Mantén pulsado para hablar",
           "holdDetail": "Suelta para terminar",

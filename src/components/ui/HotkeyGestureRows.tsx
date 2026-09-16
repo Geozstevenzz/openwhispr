@@ -41,7 +41,7 @@ function GestureRow({
   );
 }
 
-function VerbChip({
+export function HotkeyGestureChip({
   icon,
   label,
   accent = false,
@@ -109,7 +109,7 @@ export function HotkeyGestureRowsContent({
         detail={t("settingsPage.general.hotkey.gestures.holdDetail")}
         tokens={
           <>
-            <VerbChip
+            <HotkeyGestureChip
               icon={<MicVocal className="size-3" aria-hidden="true" />}
               label={t("common.hold")}
               accent
@@ -124,7 +124,7 @@ export function HotkeyGestureRowsContent({
         detail={t("settingsPage.general.hotkey.gestures.handsFreeDetail")}
         tokens={
           <>
-            <VerbChip
+            <HotkeyGestureChip
               icon={<Zap className="size-3" aria-hidden="true" />}
               label={t("settingsPage.general.hotkey.gestures.doublePress")}
             />

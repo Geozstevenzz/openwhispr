@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import logger from "../utils/logger";
 
 export interface HyprlandConfigStatus {
@@ -36,9 +36,14 @@ export function useHotkeyModeInfo(
   hotkey?: string,
   slot?: "dictation" | "voiceAgent" | "translation"
 ): HotkeyModeInfo {
-  const [modeInfo, setModeInfo] = useState<HotkeyModeInfo>(DEFAULT_INFO);
+  const request = useMemo(() => ({ scope, hotkey, slot }), [scope, hotkey, slot]);
+  const [resolved, setResolved] = useState<{
+    request: typeof request;
+    info: HotkeyModeInfo;
+  } | null>(null);
 
   useEffect(() => {
+    const { scope, hotkey, slot } = request;
     let cancelled = false;
     const checkHotkeyMode = async () => {
       try {
@@ -48,13 +53,16 @@ export function useHotkeyModeInfo(
           ? ((await window.electronAPI?.getHyprlandConfigStatus?.()) ?? null)
           : null;
         if (cancelled) return;
-        setModeInfo({
-          isUsingNativeShortcut: info.isUsingNativeShortcut,
-          isUsingHyprland: info.isUsingHyprland,
-          supportsPushToTalk: info.supportsPushToTalk,
-          pushToTalkUnavailableReason: info.pushToTalkUnavailableReason,
-          hyprlandConfigStatus,
-          loaded: true,
+        setResolved({
+          request,
+          info: {
+            isUsingNativeShortcut: info.isUsingNativeShortcut,
+            isUsingHyprland: info.isUsingHyprland,
+            supportsPushToTalk: info.supportsPushToTalk,
+            pushToTalkUnavailableReason: info.pushToTalkUnavailableReason,
+            hyprlandConfigStatus,
+            loaded: true,
+          },
         });
       } catch (error) {
         logger.error("Failed to check hotkey mode", { error }, scope);
@@ -64,7 +72,12 @@ export function useHotkeyModeInfo(
     return () => {
       cancelled = true;
     };
-  }, [scope, hotkey, slot]);
+  }, [request]);
 
-  return modeInfo;
+  // Keep backend/editor limits stable while a new key is checked, but never
+  // present the previous key's capability as a completed check for this one.
+  return {
+    ...(resolved?.info ?? DEFAULT_INFO),
+    loaded: resolved?.request === request,
+  };
 }

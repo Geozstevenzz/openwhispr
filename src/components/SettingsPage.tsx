@@ -85,9 +85,12 @@ import {
   getLinuxPasteInstallCommands,
   needsLinuxPasteToolGuidance,
 } from "../utils/linuxPasteTools";
-import { HotkeyGestureRows } from "./ui/HotkeyGestureRows";
+import {
+  SettingsHotkeyGestureGuide,
+  SettingsHotkeyException,
+  type SettingsHotkeySlot,
+} from "./settings/SettingsHotkeyGuidance";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
-import LinuxPttSetupInfo from "./ui/LinuxPttSetupInfo";
 import { Toggle } from "./ui/toggle";
 import DeveloperSection from "./DeveloperSection";
 import ChatAgentSettings from "./settings/ChatAgentSettings";
@@ -1580,10 +1583,10 @@ export default function SettingsPage({
     [dictationKey, meetingKey, voiceAgentKey, t]
   );
 
-  const { isUsingNativeShortcut, isUsingHyprland, hyprlandConfigStatus } = useHotkeyModeInfo(
-    "settings",
-    dictationKey
-  );
+  const dictationModeInfo = useHotkeyModeInfo("settings", dictationKey, "dictation");
+  const assistantModeInfo = useHotkeyModeInfo("settings", voiceAgentKey, "voiceAgent");
+  const translationModeInfo = useHotkeyModeInfo("settings", translationKey, "translation");
+  const { isUsingNativeShortcut, isUsingHyprland, hyprlandConfigStatus } = dictationModeInfo;
   const [effectiveDefaultHotkey, setEffectiveDefaultHotkey] = useState<string | null>(null);
   const [linuxPttAvailable, setLinuxPttAvailable] = useState(true);
 
@@ -3965,9 +3968,33 @@ EOF`,
           </div>
         );
 
-      case "hotkeys":
+      case "hotkeys": {
+        const dictationSlot: SettingsHotkeySlot = {
+          name: "dictation",
+          hotkey: dictationKey,
+          mode: activationMode,
+          info: dictationModeInfo,
+          pending: isHotkeyRegistering,
+        };
+        const assistantSlot: SettingsHotkeySlot = {
+          name: "voiceAgent",
+          hotkey: voiceAgentKey,
+          mode: voiceAgentActivationMode,
+          info: assistantModeInfo,
+          pending: isAgentHotkeyCommitting,
+        };
+        const translationSlot: SettingsHotkeySlot = {
+          name: "translation",
+          hotkey: translationKey,
+          mode: translationActivationMode,
+          info: translationModeInfo,
+          pending: isAgentHotkeyCommitting,
+        };
         return (
           <div className="space-y-6">
+            <h2 className="text-base font-semibold tracking-tight text-foreground">
+              {t("settingsModal.sections.hotkeys.label")}
+            </h2>
             {isUsingHyprland && hyprlandConfigStatus && !hyprlandConfigStatus.canWrite && (
               <Alert>
                 <Info className="h-4 w-4" />
@@ -3984,6 +4011,15 @@ EOF`,
                 </AlertDescription>
               </Alert>
             )}
+            <SettingsHotkeyGestureGuide
+              slots={[
+                dictationSlot,
+                ...(agentAllowedByPolicy ? [assistantSlot] : []),
+                translationSlot,
+              ]}
+              platform={platform}
+              linuxPttAvailable={linuxPttAvailable}
+            />
             {/* Dictation Hotkey */}
             <div>
               <SectionHeader
@@ -4021,18 +4057,11 @@ EOF`,
                   />
                 </SettingsPanelRow>
 
-                {(!isUsingNativeShortcut || getCachedPlatform() === "linux") && (
-                  <SettingsPanelRow>
-                    <HotkeyGestureRows
-                      slot="dictation"
-                      hotkey={dictationKey}
-                      mode={activationMode}
-                    />
-                    {getCachedPlatform() === "linux" && activationMode === "push" && (
-                      <LinuxPttSetupInfo isAvailable={linuxPttAvailable} />
-                    )}
-                  </SettingsPanelRow>
-                )}
+                <SettingsHotkeyException
+                  slot={dictationSlot}
+                  platform={platform}
+                  linuxPttAvailable={linuxPttAvailable}
+                />
               </SettingsPanel>
             </div>
 
@@ -4054,15 +4083,11 @@ EOF`,
                       maxHotkeys={isUsingNativeShortcut ? 1 : undefined}
                     />
                   </SettingsPanelRow>
-                  {voiceAgentKey && (!isUsingNativeShortcut || getCachedPlatform() === "linux") && (
-                    <SettingsPanelRow>
-                      <HotkeyGestureRows
-                        slot="voiceAgent"
-                        hotkey={voiceAgentKey}
-                        mode={voiceAgentActivationMode}
-                      />
-                    </SettingsPanelRow>
-                  )}
+                  <SettingsHotkeyException
+                    slot={assistantSlot}
+                    platform={platform}
+                    linuxPttAvailable={linuxPttAvailable}
+                  />
                 </SettingsPanel>
               </div>
             )}
@@ -4084,15 +4109,11 @@ EOF`,
                     maxHotkeys={isUsingNativeShortcut ? 1 : undefined}
                   />
                 </SettingsPanelRow>
-                {translationKey && (!isUsingNativeShortcut || getCachedPlatform() === "linux") && (
-                  <SettingsPanelRow>
-                    <HotkeyGestureRows
-                      slot="translation"
-                      hotkey={translationKey}
-                      mode={translationActivationMode}
-                    />
-                  </SettingsPanelRow>
-                )}
+                <SettingsHotkeyException
+                  slot={translationSlot}
+                  platform={platform}
+                  linuxPttAvailable={linuxPttAvailable}
+                />
               </SettingsPanel>
             </div>
 
@@ -4149,6 +4170,7 @@ EOF`,
             </div>
           </div>
         );
+      }
 
       case "speechToText":
       case "llms":

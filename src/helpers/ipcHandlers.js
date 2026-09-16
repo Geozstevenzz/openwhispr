@@ -4327,8 +4327,10 @@ class IPCHandlers {
       const hotkeyManager = this.windowManager.hotkeyManager;
       const slotName =
         typeof requestedSlot === "string" && requestedSlot ? requestedSlot : "dictation";
+      // An explicitly empty optional shortcut asks about that slot's backend,
+      // not the current dictation key (which may itself be unable to Hold).
       const hotkey =
-        typeof requestedHotkey === "string" && requestedHotkey.trim()
+        typeof requestedHotkey === "string" && (requestedHotkey.trim() || slotName !== "dictation")
           ? requestedHotkey.split(",")[0].trim()
           : hotkeyManager.getCurrentHotkey();
       const isUsingNativeShortcut = this.windowManager.isUsingNativeShortcutHotkeys();

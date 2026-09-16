@@ -2192,6 +2192,14 @@
         "hyprlandConfigWriteWarningTitle": "Hyprland keybinds will not persist",
         "hyprlandConfigWriteWarningDescription": "OpenWhispr cannot write to {{path}}, so keybinds will not survive a Hyprland config reload. Make sure the file exists and is writable.",
         "hyprlandUnbindDescription": "On Hyprland, OpenWhispr claims the selected shortcut. Any existing Hyprland bind that uses the same key combination will be unbound when OpenWhispr registers its shortcut.",
+        "guide": {
+          "title": "Two ways to speak",
+          "scope": "For {{shortcuts}}.",
+          "handsFreeStart": "Start hands-free",
+          "dictation": "Dictation",
+          "voiceAgent": "Assistant",
+          "translation": "Translation"
+        },
         "gestures": {
           "holdTitle": "Hold to speak",
           "holdDetail": "Release to finish",

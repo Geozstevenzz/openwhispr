@@ -2192,6 +2192,14 @@
         "hyprlandConfigWriteWarningTitle": "Les raccourcis Hyprland ne seront pas conservés",
         "hyprlandConfigWriteWarningDescription": "OpenWhispr ne peut pas écrire dans {{path}} ; les raccourcis ne survivront donc pas à un rechargement de la configuration Hyprland. Vérifiez que le fichier existe et qu'il est accessible en écriture.",
         "hyprlandUnbindDescription": "Sous Hyprland, OpenWhispr réserve le raccourci sélectionné. Tout raccourci Hyprland existant utilisant la même combinaison de touches sera supprimé quand OpenWhispr enregistrera son raccourci.",
+        "guide": {
+          "title": "Deux façons de parler",
+          "scope": "Pour {{shortcuts}}.",
+          "handsFreeStart": "Démarrer en mains libres",
+          "dictation": "Dictée",
+          "voiceAgent": "Assistant",
+          "translation": "Traduction"
+        },
         "gestures": {
           "holdTitle": "Maintenir pour parler",
           "holdDetail": "Relâcher pour terminer",
