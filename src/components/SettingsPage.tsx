@@ -1194,11 +1194,8 @@ export default function SettingsPage({
     useCleanupModel,
     dictationKey,
     activationMode,
-    setActivationMode,
     voiceAgentActivationMode,
-    setVoiceAgentActivationMode,
     translationActivationMode,
-    setTranslationActivationMode,
     microphoneSelectionMode,
     selectedMicDeviceId,
     selectedMicDeviceLabel,
@@ -1713,12 +1710,9 @@ export default function SettingsPage({
         variant: "destructive",
         duration: 15000,
       });
-      setActivationMode("tap");
-      setVoiceAgentActivationMode("tap");
-      setTranslationActivationMode("tap");
     });
     return () => cleanup?.();
-  }, [toast, t, setActivationMode, setVoiceAgentActivationMode, setTranslationActivationMode]);
+  }, [toast, t]);
 
   useEffect(() => {
     if (installInitiated) {

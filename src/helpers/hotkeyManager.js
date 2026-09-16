@@ -520,7 +520,7 @@ class HotkeyManager extends EventEmitter {
     const keys = [];
     for (const [slotName, slot] of this.slots) {
       for (const hotkey of slot.hotkeys ?? []) {
-        if (!hotkey || isGlobeLikeHotkey(hotkey) || isMouseButtonHotkey(hotkey)) continue;
+        if (!hotkey || !this.requiresNativeKeyListener(hotkey, slotName)) continue;
         const pushToTalk =
           slotName === "dictation"
             ? activationMode === "push"
@@ -607,18 +607,14 @@ class HotkeyManager extends EventEmitter {
     return true;
   }
 
-  // Hold is a verdict about the hotkey, not a choice — and on a DE-native
-  // Linux backend that verdict cannot be reached at startup: the backend and
-  // the saved hotkey are both known for the first time inside the deferred
-  // registrations in initializeHotkey. Take it there, and take it BEFORE the
-  // binding is attempted, because a Hold the backend cannot deliver is
-  // refused outright rather than downgraded (GNOME, Hyprland and KDE all
-  // refuse a modifier-only hotkey on Hold, and Control+Super is the shipped
-  // Linux default) — which would drop a perfectly good hotkey into the
-  // fallback list. Announced so the window manager's cache, the stored
-  // setting and every renderer follow the same verdict.
-  _settleDictationActivationMode(hotkey) {
-    const preferredMode = this.supportsPushToTalk(hotkey) ? "push" : "tap";
+  // Settle the startup request only after the saved key and backend are known.
+  // Keep the request across fallback candidates, so an unsupported first key
+  // cannot force a later working fallback to Tap. Stored Tap stays Tap until
+  // a real edit asks the candidate resolver to retry Hold.
+  async _settleDictationActivationMode(hotkey) {
+    const requestedMode = this._startupActivationMode ?? this.getSlotActivationMode("dictation");
+    const preferredMode =
+      requestedMode === "push" ? await this.resolveActivationMode(hotkey) : "tap";
     if (this.getSlotActivationMode("dictation") === preferredMode) return;
     this.activationMode = preferredMode;
     this.emit("dictation-activation-mode-settled", preferredMode);
@@ -781,6 +777,19 @@ class HotkeyManager extends EventEmitter {
             defaultValue: "The Globe/Fn key can only be used by itself.",
           }),
           reason: "fn_combination_unsupported",
+        };
+      }
+
+      if (
+        this.requiresNativeKeyListener(hotkey, slotName) &&
+        this.isNativeOnlyHotkey(hotkey) &&
+        this.nativeKeyManager &&
+        !this.nativeKeyManager.canWatch(hotkey)
+      ) {
+        return {
+          success: false,
+          hotkey,
+          error: this.getPushToTalkUnavailableReason(hotkey, slotName),
         };
       }
 
@@ -1126,6 +1135,7 @@ class HotkeyManager extends EventEmitter {
 
     this.mainWindow = mainWindow;
     this.hotkeyCallback = callback;
+    this._startupActivationMode = this.getSlotActivationMode("dictation");
 
     // Try GNOME native shortcuts on any GNOME session (X11 or Wayland).
     // On Wayland: required (globalShortcut/XGrabKey doesn't work globally).
@@ -1141,7 +1151,7 @@ class HotkeyManager extends EventEmitter {
             // The GNOME backend is settled now, so the hotkey can finally be
             // judged for Hold. Any fallback below then binds under the mode
             // this settles on.
-            this._settleDictationActivationMode(hotkey);
+            await this._settleDictationActivationMode(hotkey);
             const success = await this.registerGnomeDictationHotkey(hotkey, callback);
             if (success) {
               this.currentHotkey = hotkey;
@@ -1153,7 +1163,7 @@ class HotkeyManager extends EventEmitter {
               );
               if (!ok) {
                 this.useGnome = false;
-                this.loadSavedHotkeyOrDefault(mainWindow, callback);
+                await this.loadSavedHotkeyOrDefault(mainWindow, callback);
               }
             }
           } catch (err) {
@@ -1162,7 +1172,7 @@ class HotkeyManager extends EventEmitter {
               err.message
             );
             this.useGnome = false;
-            this.loadSavedHotkeyOrDefault(mainWindow, callback);
+            await this.loadSavedHotkeyOrDefault(mainWindow, callback);
           }
         };
 
@@ -1187,7 +1197,7 @@ class HotkeyManager extends EventEmitter {
             const hotkey = parseHotkeyList(await this.getSavedHotkey())[0] || DEFAULT_HOTKEY;
             // The Hyprland backend is settled now, so the hotkey can finally
             // be judged for Hold.
-            this._settleDictationActivationMode(hotkey);
+            await this._settleDictationActivationMode(hotkey);
 
             const success = await this.hyprlandManager.registerKeybinding(
               hotkey,
@@ -1205,7 +1215,7 @@ class HotkeyManager extends EventEmitter {
               );
               if (!ok) {
                 this.useHyprland = false;
-                this.loadSavedHotkeyOrDefault(mainWindow, callback);
+                await this.loadSavedHotkeyOrDefault(mainWindow, callback);
               }
             }
           } catch (err) {
@@ -1214,7 +1224,7 @@ class HotkeyManager extends EventEmitter {
               err.message
             );
             this.useHyprland = false;
-            this.loadSavedHotkeyOrDefault(mainWindow, callback);
+            await this.loadSavedHotkeyOrDefault(mainWindow, callback);
           }
         };
 
@@ -1236,7 +1246,7 @@ class HotkeyManager extends EventEmitter {
             const hotkey = parseHotkeyList(await this.getSavedHotkey())[0] || DEFAULT_HOTKEY;
             // The KDE backend is settled now, so the hotkey can finally be
             // judged for Hold.
-            this._settleDictationActivationMode(hotkey);
+            await this._settleDictationActivationMode(hotkey);
             const result = await this.kdeManager.registerKeybinding(
               hotkey,
               "dictation",
@@ -1266,7 +1276,7 @@ class HotkeyManager extends EventEmitter {
               this.kdeManager.close();
               this.kdeManager = null;
               this.useKDE = false;
-              this.loadSavedHotkeyOrDefault(mainWindow, callback);
+              await this.loadSavedHotkeyOrDefault(mainWindow, callback);
             }
           } catch (err) {
             debugLogger.log(
@@ -1276,7 +1286,7 @@ class HotkeyManager extends EventEmitter {
             this.kdeManager?.close();
             this.kdeManager = null;
             this.useKDE = false;
-            this.loadSavedHotkeyOrDefault(mainWindow, callback);
+            await this.loadSavedHotkeyOrDefault(mainWindow, callback);
           }
         };
 
@@ -1293,24 +1303,43 @@ class HotkeyManager extends EventEmitter {
     // Register from env var immediately if available, otherwise wait for page load.
     const envHotkey = process.env.DICTATION_KEY || "";
     if (envHotkey) {
-      const result = this.setupShortcuts(envHotkey, callback);
+      const result = await this._registerStartupHotkeys(envHotkey, callback);
       if (result.success) {
         this._notifyStartupRegistration(envHotkey, result);
         debugLogger.log(`[HotkeyManager] Hotkey "${envHotkey}" registered from env`);
       } else {
         debugLogger.log(`[HotkeyManager] Env hotkey "${envHotkey}" failed, waiting for page`);
-        this.loadSavedHotkeyOrDefault(mainWindow, callback);
+        await this.loadSavedHotkeyOrDefault(mainWindow, callback);
       }
     } else {
       const loadHotkey = () => this.loadSavedHotkeyOrDefault(mainWindow, callback);
       if (mainWindow.webContents.isLoading()) {
         mainWindow.webContents.once("did-finish-load", loadHotkey);
       } else {
-        loadHotkey();
+        await loadHotkey();
       }
     }
 
     this.isInitialized = true;
+  }
+
+  async _registerStartupHotkeys(hotkeyInput, callback) {
+    await this._settleDictationActivationMode(hotkeyInput);
+    const nativeOnlyKeys = parseHotkeyList(hotkeyInput).filter(
+      (key) => this.requiresNativeKeyListener(key) && this.isNativeOnlyHotkey(key)
+    );
+    // Native-only Tap still needs a working reader even when stored Tap was
+    // intentionally preserved rather than promoted to Hold.
+    if (
+      nativeOnlyKeys.length &&
+      this.nativeKeyManager &&
+      (this._startupActivationMode ?? this.getSlotActivationMode("dictation")) === "tap"
+    ) {
+      await this.nativeKeyManager.ensureReady(nativeOnlyKeys);
+    }
+    const result = this.setupShortcuts(hotkeyInput, callback);
+    this.emit("native-listeners-reconcile");
+    return result;
   }
 
   async loadSavedHotkeyOrDefault(mainWindow, callback) {
@@ -1339,7 +1368,7 @@ class HotkeyManager extends EventEmitter {
       }
 
       if (savedHotkey && savedHotkey.trim() !== "") {
-        const result = this.setupShortcuts(savedHotkey, callback);
+        const result = await this._registerStartupHotkeys(savedHotkey, callback);
         if (result.success) {
           this._notifyStartupRegistration(savedHotkey, result);
           debugLogger.log(`[HotkeyManager] Restored saved hotkey: "${savedHotkey}"`);
@@ -1358,7 +1387,7 @@ class HotkeyManager extends EventEmitter {
         return;
       }
 
-      const result = this.setupShortcuts(defaultHotkey, callback);
+      const result = await this._registerStartupHotkeys(defaultHotkey, callback);
       if (result.success) {
         debugLogger.log(
           `[HotkeyManager] Default hotkey "${defaultHotkey}" registered successfully`
@@ -1370,7 +1399,7 @@ class HotkeyManager extends EventEmitter {
         `[HotkeyManager] Default hotkey "${defaultHotkey}" failed, trying fallbacks...`
       );
       for (const fallback of FALLBACK_HOTKEYS) {
-        const fallbackResult = this.setupShortcuts(fallback, callback);
+        const fallbackResult = await this._registerStartupHotkeys(fallback, callback);
         if (fallbackResult.success) {
           debugLogger.log(`[HotkeyManager] Fallback hotkey "${fallback}" registered successfully`);
           // Only persist to .env (for loadSavedHotkeyOrDefault fallback path).
@@ -1558,7 +1587,11 @@ class HotkeyManager extends EventEmitter {
     // a release. The caller is told either way; a failed registration
     // restores the previous mode because nothing changed hands.
     const previousMode = this.activationMode === "push" ? "push" : "tap";
-    const preferredMode = this.supportsPushToTalk(primary) ? "push" : "tap";
+    for (const hotkey of hotkeys) {
+      const conflict = this._findSlotConflict("dictation", hotkey);
+      if (conflict) return { success: false, message: conflict.error, reason: conflict.reason };
+    }
+    const preferredMode = await this.resolveActivationMode(hotkeys);
     const converged = preferredMode !== previousMode;
     if (converged) this.activationMode = preferredMode;
     // previousMode goes with it: the backend that has to put the OLD hotkey
