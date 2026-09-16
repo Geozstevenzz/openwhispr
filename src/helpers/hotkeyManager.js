@@ -6,6 +6,7 @@ const HyprlandShortcutManager = require("./hyprlandShortcut");
 const KDEShortcutManager = require("./kdeShortcut");
 const { i18nMain } = require("./i18nMain");
 const { parseHotkeyList } = require("./hotkeyList");
+const { supportsMacKeyWatch } = require("./macKeyNames");
 
 // Delay to ensure localStorage is accessible after window load
 const HOTKEY_REGISTRATION_DELAY_MS = 1000;
@@ -178,7 +179,11 @@ class HotkeyManager extends EventEmitter {
   // the listener's event tap owns it — as the low-level hooks do on Windows
   // and Linux. Combos keep the hot key: modifier-up is their release source.
   isMacListenerOwnedKey(hotkey, slotName = "dictation") {
-    return this._isMacPlainKey(hotkey) && this._slotWantsPushToTalk(slotName);
+    return (
+      this._isMacPlainKey(hotkey) &&
+      supportsMacKeyWatch(hotkey) &&
+      this._slotWantsPushToTalk(slotName)
+    );
   }
 
   _macSlotNeedsReregister(slotName) {
@@ -563,6 +568,7 @@ class HotkeyManager extends EventEmitter {
   // modifiers, mouse buttons, plain keys) or modifier-up for combos.
   // Hyprland binds only the dictation slot, so the others have no source there.
   supportsPushToTalk(hotkey = this.currentHotkey, slotName = "dictation") {
+    if (this._isMacPlainKey(hotkey)) return supportsMacKeyWatch(hotkey);
     if (this.isUsingNativeShortcut() && isModifierOnlyHotkey(hotkey)) {
       return false;
     }
@@ -767,6 +773,18 @@ class HotkeyManager extends EventEmitter {
           `[HotkeyManager] Modifier-only "${hotkey}" set - using Windows native listener`
         );
         return { success: true, hotkey, accelerator: null };
+      }
+
+      if (
+        this._isMacPlainKey(hotkey) &&
+        this._slotWantsPushToTalk(slotName) &&
+        !supportsMacKeyWatch(hotkey)
+      ) {
+        return {
+          success: false,
+          hotkey,
+          error: this.getPushToTalkUnavailableReason(hotkey, slotName),
+        };
       }
 
       if (this.isMacListenerOwnedKey(hotkey, slotName)) {
