@@ -32,6 +32,12 @@ test("practice account readiness follows the inference route used by Assistant",
   const signedOut = { isLoaded: true, isSignedIn: false };
   const unresolved = { isLoaded: false, isSignedIn: false };
   const signedIn = { isLoaded: true, isSignedIn: true };
+  const unverified = { ...signedIn, emailVerified: false };
+  const pending = {
+    ...signedIn,
+    emailVerified: true,
+    pendingVerificationEmail: "new@example.test",
+  };
   const cloudChat = { chatAgentMode: "openwhispr", chatAgentCloudMode: "openwhispr" };
   const cloudAssistant = {
     dictationAgentMode: "openwhispr",
@@ -87,6 +93,9 @@ test("practice account readiness follows the inference route used by Assistant",
         getOnboardingDemoAuthStatus("assistant", scenario.settings, unresolved),
         "ready"
       );
+      for (const auth of [unverified, pending]) {
+        assert.equal(getOnboardingDemoAuthStatus("assistant", scenario.settings, auth), "ready");
+      }
     });
   }
 
@@ -140,6 +149,8 @@ test("practice account readiness follows the inference route used by Assistant",
         "openwhispr"
       );
       assert.equal(getOnboardingDemoAuthStatus("assistant", effective, signedOut), "required");
+      assert.equal(getOnboardingDemoAuthStatus("assistant", effective, unverified), "required");
+      assert.equal(getOnboardingDemoAuthStatus("assistant", effective, pending), "required");
     }
   );
 
@@ -151,6 +162,16 @@ test("practice account readiness follows the inference route used by Assistant",
         assert.equal(getOnboardingDemoAuthStatus(kind, cloud, unresolved), "loading");
         assert.equal(getOnboardingDemoAuthStatus(kind, cloud, signedOut), "required");
         assert.equal(getOnboardingDemoAuthStatus(kind, cloud, signedIn), "ready");
+        assert.equal(getOnboardingDemoAuthStatus(kind, cloud, unverified), "required");
+        assert.equal(getOnboardingDemoAuthStatus(kind, cloud, pending), "required");
+        assert.equal(
+          getOnboardingDemoAuthStatus(kind, cloud, { ...pending, isLoaded: false }),
+          "loading"
+        );
+        assert.equal(
+          getOnboardingDemoAuthStatus(kind, cloud, { ...signedIn, emailVerified: true }),
+          "ready"
+        );
         assert.equal(
           getOnboardingDemoAuthStatus(
             kind,

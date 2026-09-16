@@ -7,7 +7,7 @@ import { Button } from "../ui/button";
 import SignInDialog from "../SignInDialog";
 import { signOut } from "../../lib/auth";
 import type { DemoAuthStatus } from "../../utils/onboardingDemo";
-import type { OnboardingDemoDraft } from "./flow";
+import type { OnboardingAuthDraft, OnboardingDemoDraft } from "./flow";
 import { toolIcons } from "../chat/toolIcons";
 import { VoicePill, type VoicePillState } from "../dictation/VoicePill";
 import { useListeningEntrancePhase } from "../../hooks/useListeningEntrancePhase";
@@ -266,6 +266,8 @@ interface DemoStepProps {
   authStatus?: DemoAuthStatus;
   initialDraft?: OnboardingDemoDraft;
   onRecoveryDraft?: (draft: OnboardingDemoDraft) => void;
+  authResumeState?: OnboardingAuthDraft;
+  onAuthResumeStateChange?: (state: Partial<OnboardingAuthDraft>) => void;
 }
 
 export default function DemoStep({
@@ -282,6 +284,8 @@ export default function DemoStep({
   authStatus = "ready",
   initialDraft,
   onRecoveryDraft,
+  authResumeState,
+  onAuthResumeStateChange,
 }: DemoStepProps) {
   const { t } = useTranslation();
   const [messageCount, setMessageCount] = useState(0);
@@ -291,7 +295,10 @@ export default function DemoStep({
   const [transcript, setTranscript] = useState(initialDraft?.transcript ?? "");
   const [demoId, setDemoId] = useState(() => crypto.randomUUID());
   const [restoredSuccessful, setRestoredSuccessful] = useState(initialSuccessful);
-  const [signInOpen, setSignInOpen] = useState(false);
+  const pendingVerificationEmail = authResumeState?.pendingVerificationEmail;
+  const [signInOpen, setSignInOpen] = useState(
+    () => authStatus !== "ready" && Boolean(pendingVerificationEmail)
+  );
   const [recovering, setRecovering] = useState(false);
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
   const authError = event?.code === "AUTH_REQUIRED" || event?.code === "AUTH_EXPIRED";
@@ -302,6 +309,13 @@ export default function DemoStep({
   // events a second from re-rendering the step.
   const levelRef = useRef(0);
   const getLevel = useCallback(() => levelRef.current, []);
+
+  useEffect(() => {
+    if (authStatus === "ready" || !pendingVerificationEmail) return;
+    // A signup session can arrive before its callback. Checkpoint the recovered
+    // address so another policy replacement during Back can still restore it.
+    onAuthResumeStateChange?.({ pendingVerificationEmail });
+  }, [authStatus, onAuthResumeStateChange, pendingVerificationEmail]);
 
   useEffect(() => {
     if (authStatus === "ready") return;
@@ -514,6 +528,8 @@ export default function DemoStep({
         open={signInOpen}
         onOpenChange={setSignInOpen}
         onAuthComplete={resumeAfterSignIn}
+        resumeState={authResumeState}
+        onResumeStateChange={onAuthResumeStateChange}
       />
     </div>
   );

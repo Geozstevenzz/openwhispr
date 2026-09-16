@@ -7,7 +7,12 @@ export type DemoAuthStatus = "loading" | "required" | "ready";
 export function getOnboardingDemoAuthStatus(
   kind: OnboardingDemoKind,
   settings: SettingsState,
-  auth: { isLoaded: boolean; isSignedIn: boolean }
+  auth: {
+    isLoaded: boolean;
+    isSignedIn: boolean;
+    emailVerified?: boolean;
+    pendingVerificationEmail?: string | null;
+  }
 ): DemoAuthStatus {
   const cloudTranscription =
     !settings.useLocalWhisper && settings.cloudTranscriptionMode === "openwhispr";
@@ -19,7 +24,10 @@ export function getOnboardingDemoAuthStatus(
         settings.cleanupMode === "openwhispr" &&
         settings.cleanupCloudMode === "openwhispr";
   if (!cloudTranscription && !cloudReasoning) return "ready";
-  return !auth.isLoaded ? "loading" : auth.isSignedIn ? "ready" : "required";
+  if (!auth.isLoaded) return "loading";
+  return auth.isSignedIn && auth.emailVerified !== false && !auth.pendingVerificationEmail
+    ? "ready"
+    : "required";
 }
 
 export function getOnboardingDemoKind(voiceAgentRequested: boolean): OnboardingDemoKind {

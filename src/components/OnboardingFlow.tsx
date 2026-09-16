@@ -50,7 +50,6 @@ import { signOut } from "../lib/auth";
 import logger from "../utils/logger";
 import {
   COMPACT_STEPS,
-  ONBOARDING_SESSION_KEY,
   getNextOnboardingStep,
   getNotesFooterAction,
   getOnboardingProgress,
@@ -96,7 +95,7 @@ function DemoHotkeyDescription({ text, hotkey }: { text: string; hotkey: string 
 export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const { t } = useTranslation();
   const platform = getPlatform();
-  const { isLoaded, isSignedIn } = useAuth();
+  const { isLoaded, isSignedIn, user } = useAuth();
   const agentAllowed = usePolicyStore(isAgentAllowed);
   const screenContextAllowed = usePolicyStore(isScreenContextAllowed);
   const settings = useSettings();
@@ -142,6 +141,22 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const [recommendedDictationHotkey, setRecommendedDictationHotkey] = useState(getDefaultHotkey);
   const dictationDemoSuccess = session.resume.dictationDemoCompleted;
   const assistantDemoSuccess = session.resume.assistantDemoCompleted;
+  const demoAuth = {
+    isLoaded,
+    isSignedIn,
+    emailVerified: user?.emailVerified,
+    pendingVerificationEmail: session.resume.auth.pendingVerificationEmail,
+  };
+  const dictationDemoAuthStatus = getOnboardingDemoAuthStatus(
+    "dictation",
+    effectiveSettings,
+    demoAuth
+  );
+  const assistantDemoAuthStatus = getOnboardingDemoAuthStatus(
+    "assistant",
+    effectiveSettings,
+    demoAuth
+  );
   const [stageReady, setStageReady] = useState(false);
   const [isFinishing, setIsFinishing] = useState(false);
   const [fatalError, setFatalError] = useState<string | null>(null);
@@ -846,11 +861,11 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
       case "dictation-hotkey":
         return dictationHotkeyConfirmed;
       case "dictation-demo":
-        return dictationDemoSuccess;
+        return dictationDemoSuccess && dictationDemoAuthStatus === "ready";
       case "assistant-hotkey":
         return assistantHotkeyConfirmed;
       case "assistant-demo":
-        return assistantDemoSuccess;
+        return assistantDemoSuccess && assistantDemoAuthStatus === "ready";
       case "notes":
         return notesFooterAction === "continue";
       case "byok-dictation":
@@ -1105,30 +1120,32 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
             <DemoStep
               key={assistant ? "assistant" : "dictation"}
               kind={assistant ? "assistant" : "dictation"}
-              authStatus={getOnboardingDemoAuthStatus(
-                assistant ? "assistant" : "dictation",
-                effectiveSettings,
-                { isLoaded, isSignedIn }
-              )}
+              authStatus={assistant ? assistantDemoAuthStatus : dictationDemoAuthStatus}
+              authResumeState={{
+                ...session.resume.auth,
+                // Signup can publish the session before its callback checkpoints
+                // the address. The practice step checkpoints this recovered
+                // address on mount before another policy replacement can lose it.
+                pendingVerificationEmail:
+                  session.resume.auth.pendingVerificationEmail ??
+                  (user?.emailVerified === false ? user.email : null),
+              }}
+              onAuthResumeStateChange={updateAuthResumeState}
               initialSuccessful={assistant ? assistantDemoSuccess : dictationDemoSuccess}
               initialDraft={
                 session.resume.demoRecoveryDrafts?.[assistant ? "assistant" : "dictation"]
               }
               onRecoveryDraft={(draft) => {
-                const next = {
-                  ...session,
+                setSession((current) => ({
+                  ...current,
                   resume: {
-                    ...session.resume,
+                    ...current.resume,
                     demoRecoveryDrafts: {
-                      ...session.resume.demoRecoveryDrafts,
+                      ...current.resume.demoRecoveryDrafts,
                       [assistant ? "assistant" : "dictation"]: draft,
                     },
                   },
-                };
-                // Auth/policy reconciliation can remount the flow. Checkpoint
-                // before it starts so the practice text survives that boundary.
-                localStorage.setItem(ONBOARDING_SESSION_KEY, JSON.stringify(next));
-                setSession(next);
+                }));
               }}
               firstMessage={t(
                 assistant
