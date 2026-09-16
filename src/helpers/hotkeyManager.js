@@ -106,6 +106,7 @@ class HotkeyManager extends EventEmitter {
     this.useHyprland = false;
     this.kdeManager = null;
     this.useKDE = false;
+    this.nativeKeyManager = null;
     // Per-slot activation modes for the slots that can Hold besides
     // dictation (which keeps the legacy activationMode).
     this.slotActivationModes = { voiceAgent: "tap", translation: "tap" };
@@ -518,6 +519,44 @@ class HotkeyManager extends EventEmitter {
     );
   }
 
+  // Desktop backends own both key phases independently of the optional evdev
+  // reader. Hyprland only owns dictation at this version of the integration.
+  hasNativeShortcutPhases(slotName = "dictation") {
+    const recordingSlot = slotName === "dictation" || SLOT_MODE_PUSH_SLOTS.has(slotName);
+    if (!recordingSlot) return false;
+    if (this.useKDE) return true;
+    if (this.useGnome) return Boolean(this.gnomeManager?.supportsPushToTalk?.());
+    return this.useHyprland && slotName === "dictation";
+  }
+
+  requiresNativeKeyListener(hotkey, slotName = "dictation") {
+    return (
+      (process.platform === "win32" || process.platform === "linux") &&
+      !this.hasNativeShortcutPhases(slotName) &&
+      !this.isUsingNativeShortcut() &&
+      !isGlobeLikeHotkey(hotkey) &&
+      !isMouseButtonHotkey(hotkey)
+    );
+  }
+
+  isNativeOnlyHotkey(hotkey) {
+    return isModifierOnlyHotkey(hotkey) || isRightSideModifier(hotkey);
+  }
+
+  // Probe candidate readers without removing the currently active readers.
+  // A new edit deliberately retries a previous failure; ordinary capability
+  // reads and renderer synchronization never restart a failed reader.
+  async resolveActivationMode(hotkeyInput, slotName = "dictation") {
+    let hotkeys = parseHotkeyList(hotkeyInput);
+    if (this.isUsingNativeShortcut()) hotkeys = hotkeys.slice(0, 1);
+    if (!hotkeys.length) return "tap";
+    const readerKeys = hotkeys.filter((hotkey) => this.requiresNativeKeyListener(hotkey, slotName));
+    if (readerKeys.length && this.nativeKeyManager) {
+      if (!(await this.nativeKeyManager.ensureReady(readerKeys))) return "tap";
+    }
+    return hotkeys.every((hotkey) => this.supportsPushToTalk(hotkey, slotName)) ? "push" : "tap";
+  }
+
   // Hold needs a press/release source for the slot's hotkey: the low-level
   // listener on Windows/Linux, the GlobalShortcuts portal on GNOME,
   // KGlobalAccel on KDE, and on macOS the native listener (Globe, right
@@ -532,6 +571,9 @@ class HotkeyManager extends EventEmitter {
     }
     if (this.useGnome && this.gnomeManager?.supportsPushToTalk) {
       return this.gnomeManager.supportsPushToTalk();
+    }
+    if (this.requiresNativeKeyListener(hotkey, slotName) && this.nativeKeyManager) {
+      return this.nativeKeyManager.canWatch(hotkey);
     }
     return true;
   }
