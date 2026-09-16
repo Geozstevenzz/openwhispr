@@ -19,27 +19,21 @@ function canHold({ hotkey, mode, info, pending }: SettingsHotkeySlot) {
   return !pending && info.loaded && info.supportsPushToTalk && (!hotkey || mode === "push");
 }
 
-function needsLinuxSetup(slot: SettingsHotkeySlot, platform: Platform, linuxPttAvailable: boolean) {
+function needsLinuxSetup(slot: SettingsHotkeySlot, platform: Platform) {
   return (
-    platform === "linux" &&
-    !slot.info.isUsingNativeShortcut &&
-    (!slot.info.supportsPushToTalk || !linuxPttAvailable)
+    platform === "linux" && !slot.info.isUsingNativeShortcut && slot.info.linuxPttPermissionDenied
   );
 }
 
 export function SettingsHotkeyGestureGuide({
   slots,
   platform,
-  linuxPttAvailable,
 }: {
   slots: SettingsHotkeySlot[];
   platform: Platform;
-  linuxPttAvailable: boolean;
 }) {
   const { t, i18n } = useTranslation();
-  const supported = slots.filter(
-    (slot) => canHold(slot) && !needsLinuxSetup(slot, platform, linuxPttAvailable)
-  );
+  const supported = slots.filter((slot) => canHold(slot) && !needsLinuxSetup(slot, platform));
   if (!supported.some(({ hotkey }) => hotkey)) return null;
 
   const language = i18n.resolvedLanguage || i18n.language;
@@ -94,15 +88,13 @@ export function SettingsHotkeyGestureGuide({
 export function SettingsHotkeyException({
   slot,
   platform,
-  linuxPttAvailable,
 }: {
   slot: SettingsHotkeySlot;
   platform: Platform;
-  linuxPttAvailable: boolean;
 }) {
   if (!slot.hotkey || slot.pending || !slot.info.loaded) return null;
 
-  const showLinuxSetup = needsLinuxSetup(slot, platform, linuxPttAvailable);
+  const showLinuxSetup = needsLinuxSetup(slot, platform);
   if (canHold(slot) && !showLinuxSetup) return null;
 
   return (

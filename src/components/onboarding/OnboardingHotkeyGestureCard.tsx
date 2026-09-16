@@ -10,6 +10,7 @@ interface OnboardingHotkeyGestureCardProps {
   platform: Platform;
   isUsingNativeShortcut: boolean;
   supportsPushToTalk: boolean;
+  linuxPttPermissionDenied?: boolean;
   pushToTalkUnavailableReason?: string | null;
 }
 
@@ -25,6 +26,7 @@ export default function OnboardingHotkeyGestureCard({
   platform,
   isUsingNativeShortcut,
   supportsPushToTalk,
+  linuxPttPermissionDenied = false,
   pushToTalkUnavailableReason,
 }: OnboardingHotkeyGestureCardProps) {
   if (!confirmed || !hotkey) return null;
@@ -37,6 +39,9 @@ export default function OnboardingHotkeyGestureCard({
     ) : null;
   }
 
+  const needsLinuxSetup =
+    platform === "linux" && !isUsingNativeShortcut && linuxPttPermissionDenied;
+
   return (
     <div
       className="onboarding-hotkey-gesture-card onboarding-gesture-reveal mx-auto mt-4 w-full max-w-sm rounded-2xl border border-[var(--onboarding-control-border)] bg-[var(--onboarding-surface)] px-4 py-2 text-start"
@@ -44,12 +49,10 @@ export default function OnboardingHotkeyGestureCard({
     >
       <HotkeyGestureRowsContent
         hotkey={hotkey}
-        mode={supportsPushToTalk ? mode : "tap"}
+        mode={supportsPushToTalk && !needsLinuxSetup ? mode : "tap"}
         pushToTalkUnavailableReason={pushToTalkUnavailableReason}
       />
-      {platform === "linux" && !isUsingNativeShortcut && (
-        <LinuxPttSetupInfo isAvailable={supportsPushToTalk} />
-      )}
+      {needsLinuxSetup && <LinuxPttSetupInfo isAvailable={false} />}
     </div>
   );
 }

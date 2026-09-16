@@ -39,17 +39,19 @@ test("reveals Hold and hands-free guidance after confirmation", async (t) => {
   assert.doesNotMatch(markup, /onboarding\.rehaul\.dictationHotkey\.activation/);
 });
 
-test("an unavailable non-native Linux listener retains the setup command", async (t) => {
+test("a missing non-native Linux listener does not suggest permission repair", async (t) => {
   const markup = await render(t, {
     confirmed: true,
     mode: "tap",
     platform: "linux",
     supportsPushToTalk: false,
     isUsingNativeShortcut: false,
+    linuxPttPermissionDenied: false,
+    pushToTalkUnavailableReason: "Push-to-Talk native listener not available",
   });
 
-  assert.match(markup, /settingsPage\.general\.hotkey\.linuxPttSetupTitle/);
-  assert.match(markup, /sudo usermod -aG input \$USER/);
+  assert.match(markup, /Push-to-Talk native listener not available/);
+  assert.doesNotMatch(markup, /linuxPttSetup|sudo usermod/);
   assert.match(markup, /gestures\.tapOnlyTitle/);
   assert.doesNotMatch(markup, /gestures\.holdTitle/);
   assert.doesNotMatch(markup, /gestures\.handsFreeTitle/);
@@ -130,4 +132,18 @@ test("shortcut keycaps keep their physical order inside Arabic RTL", async (t) =
 
   assert.match(markup, /<span[^>]*dir="ltr"[^>]*class="whitespace-nowrap"/);
   assert.doesNotMatch(markup, /\b(?:ml|mr|pl|pr)-/);
+});
+
+test("confirmed non-native Linux denial shows repair and Tap even when the helper exists", async (t) => {
+  const markup = await render(t, {
+    confirmed: true,
+    mode: "push",
+    platform: "linux",
+    supportsPushToTalk: true,
+    isUsingNativeShortcut: false,
+    linuxPttPermissionDenied: true,
+  });
+  assert.equal((markup.match(/sudo usermod/g) || []).length, 1);
+  assert.match(markup, /gestures\.tapOnlyTitle/);
+  assert.doesNotMatch(markup, /gestures\.(holdTitle|handsFreeTitle)/);
 });

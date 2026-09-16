@@ -211,6 +211,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const {
     isUsingNativeShortcut: dictationIsUsingNativeShortcut,
     supportsPushToTalk: dictationSupportsPushToTalk,
+    linuxPttPermissionDenied: dictationLinuxPttPermissionDenied,
     pushToTalkUnavailableReason: dictationPushToTalkUnavailableReason,
     loaded: dictationHotkeyModeLoaded,
   } = useHotkeyModeInfo("onboarding-dictation", dictationHotkey, "dictation");
@@ -1044,6 +1045,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
               supportsPushToTalk={
                 assistant ? assistantSupportsPushToTalk : dictationSupportsPushToTalk
               }
+              linuxPttPermissionDenied={dictationLinuxPttPermissionDenied}
               pushToTalkUnavailableReason={
                 assistant
                   ? assistantPushToTalkUnavailableReason

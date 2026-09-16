@@ -10,6 +10,7 @@ export interface HotkeyModeInfo {
   isUsingNativeShortcut: boolean;
   isUsingHyprland: boolean;
   supportsPushToTalk: boolean;
+  linuxPttPermissionDenied: boolean;
   pushToTalkUnavailableReason: string | null;
   hyprlandConfigStatus: HyprlandConfigStatus | null;
   /** False until main has answered; the defaults above are optimistic placeholders. */
@@ -20,6 +21,7 @@ const DEFAULT_INFO: HotkeyModeInfo = {
   isUsingNativeShortcut: false,
   isUsingHyprland: false,
   supportsPushToTalk: true,
+  linuxPttPermissionDenied: false,
   pushToTalkUnavailableReason: null,
   hyprlandConfigStatus: null,
   loaded: false,
@@ -36,11 +38,21 @@ export function useHotkeyModeInfo(
   hotkey?: string,
   slot?: "dictation" | "voiceAgent" | "translation"
 ): HotkeyModeInfo {
-  const request = useMemo(() => ({ scope, hotkey, slot }), [scope, hotkey, slot]);
+  const [denialGeneration, setDenialGeneration] = useState(0);
+  const request = useMemo(
+    () => ({ scope, hotkey, slot, denialGeneration }),
+    [scope, hotkey, slot, denialGeneration]
+  );
   const [resolved, setResolved] = useState<{
     request: typeof request;
     info: HotkeyModeInfo;
   } | null>(null);
+
+  useEffect(() => {
+    return window.electronAPI?.onLinuxPttPermissionDenied?.(() => {
+      setDenialGeneration((generation) => generation + 1);
+    });
+  }, []);
 
   useEffect(() => {
     const { scope, hotkey, slot } = request;
@@ -59,6 +71,7 @@ export function useHotkeyModeInfo(
             isUsingNativeShortcut: info.isUsingNativeShortcut,
             isUsingHyprland: info.isUsingHyprland,
             supportsPushToTalk: info.supportsPushToTalk,
+            linuxPttPermissionDenied: info.linuxPttPermissionDenied,
             pushToTalkUnavailableReason: info.pushToTalkUnavailableReason,
             hyprlandConfigStatus,
             loaded: true,

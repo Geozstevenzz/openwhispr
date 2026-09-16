@@ -4347,6 +4347,11 @@ class IPCHandlers {
         isUsingKDE: this.windowManager.isUsingKDEHotkeys(),
         isUsingNativeShortcut,
         supportsPushToTalk,
+        linuxPttPermissionDenied:
+          process.platform === "linux" &&
+          !isUsingNativeShortcut &&
+          supportsPushToTalk &&
+          this.linuxKeyManager?.permissionDenied === true,
         pushToTalkUnavailableReason: supportsPushToTalk
           ? null
           : hotkeyManager.getPushToTalkUnavailableReason(hotkey, slotName),

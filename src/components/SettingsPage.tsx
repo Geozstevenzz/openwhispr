@@ -1588,7 +1588,6 @@ export default function SettingsPage({
   const translationModeInfo = useHotkeyModeInfo("settings", translationKey, "translation");
   const { isUsingNativeShortcut, isUsingHyprland, hyprlandConfigStatus } = dictationModeInfo;
   const [effectiveDefaultHotkey, setEffectiveDefaultHotkey] = useState<string | null>(null);
-  const [linuxPttAvailable, setLinuxPttAvailable] = useState(true);
 
   const platform = getCachedPlatform();
 
@@ -1709,7 +1708,6 @@ export default function SettingsPage({
 
   useEffect(() => {
     const cleanup = window.electronAPI?.onLinuxPttPermissionDenied?.(() => {
-      setLinuxPttAvailable(false);
       toast({
         title: t("settingsPage.general.hotkey.linuxPttPermissionTitle"),
         description: t("settingsPage.general.hotkey.linuxPttPermissionDescription"),
@@ -4018,7 +4016,6 @@ EOF`,
                 translationSlot,
               ]}
               platform={platform}
-              linuxPttAvailable={linuxPttAvailable}
             />
             {/* Dictation Hotkey */}
             <div>
@@ -4057,11 +4054,7 @@ EOF`,
                   />
                 </SettingsPanelRow>
 
-                <SettingsHotkeyException
-                  slot={dictationSlot}
-                  platform={platform}
-                  linuxPttAvailable={linuxPttAvailable}
-                />
+                <SettingsHotkeyException slot={dictationSlot} platform={platform} />
               </SettingsPanel>
             </div>
 
@@ -4083,11 +4076,7 @@ EOF`,
                       maxHotkeys={isUsingNativeShortcut ? 1 : undefined}
                     />
                   </SettingsPanelRow>
-                  <SettingsHotkeyException
-                    slot={assistantSlot}
-                    platform={platform}
-                    linuxPttAvailable={linuxPttAvailable}
-                  />
+                  <SettingsHotkeyException slot={assistantSlot} platform={platform} />
                 </SettingsPanel>
               </div>
             )}
@@ -4109,11 +4098,7 @@ EOF`,
                     maxHotkeys={isUsingNativeShortcut ? 1 : undefined}
                   />
                 </SettingsPanelRow>
-                <SettingsHotkeyException
-                  slot={translationSlot}
-                  platform={platform}
-                  linuxPttAvailable={linuxPttAvailable}
-                />
+                <SettingsHotkeyException slot={translationSlot} platform={platform} />
               </SettingsPanel>
             </div>
 

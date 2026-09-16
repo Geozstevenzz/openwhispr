@@ -10,6 +10,7 @@ const supportedInfo = {
   isUsingNativeShortcut: false,
   isUsingHyprland: false,
   supportsPushToTalk: true,
+  linuxPttPermissionDenied: false,
   pushToTalkUnavailableReason: null,
   hyprlandConfigStatus: null,
 };
@@ -27,11 +28,7 @@ const standardSlots = () => [
   slot("translation", { hotkey: "" }),
 ];
 
-async function render(
-  t,
-  slots,
-  { platform = "darwin", linuxPttAvailable = true, language = "en" } = {}
-) {
+async function render(t, slots, { platform = "darwin", language = "en" } = {}) {
   const { I18nextProvider } = await import("react-i18next");
   const catalog = require(`../../src/locales/${language}/translation.json`);
   installBrowserGlobals(t);
@@ -49,13 +46,12 @@ async function render(
     React.createElement(
       I18nextProvider,
       { i18n },
-      React.createElement(SettingsHotkeyGestureGuide, { slots, platform, linuxPttAvailable }),
+      React.createElement(SettingsHotkeyGestureGuide, { slots, platform }),
       ...slots.map((item) =>
         React.createElement(SettingsHotkeyException, {
           key: item.name,
           slot: item,
           platform,
-          linuxPttAvailable,
         })
       )
     )
@@ -134,25 +130,43 @@ test("an effective Tap mode is respected even when the backend can Hold", async 
   assert.match(markup, /Press to start, press again to stop/);
 });
 
-for (const supportsPushToTalk of [false, true]) {
-  test(`non-native Linux setup remains visible with ${supportsPushToTalk ? "a late permission-denied event" : "an unavailable listener"}`, async (t) => {
-    const markup = await render(
-      t,
-      [
-        slot("dictation", { info: { ...supportedInfo, supportsPushToTalk } }),
-        slot("voiceAgent", { info: { ...supportedInfo, supportsPushToTalk } }),
-      ],
-      { platform: "linux", linuxPttAvailable: false }
-    );
-    assert.doesNotMatch(markup, /<aside|Hold to speak|Start hands-free/);
-    assert.equal(
-      (markup.match(/sudo usermod/g) || []).length,
-      1,
-      "one setup command under Dictation"
-    );
-    assert.equal((markup.match(/Press to start, press again to stop/g) || []).length, 2);
-  });
-}
+test("a missing non-native Linux helper shows unavailable guidance without permission repair", async (t) => {
+  const reason = "Push-to-Talk native listener not available";
+  const markup = await render(
+    t,
+    [
+      slot("dictation", {
+        info: { ...supportedInfo, supportsPushToTalk: false, pushToTalkUnavailableReason: reason },
+      }),
+    ],
+    { platform: "linux" }
+  );
+  assert.match(markup, /Push-to-Talk native listener not available/);
+  assert.match(markup, /Press to start, press again to stop/);
+  assert.doesNotMatch(
+    markup,
+    /sudo usermod|Your user needs access|<aside|Hold to speak|Start hands-free/
+  );
+});
+
+test("confirmed non-native Linux denial shows one Dictation repair and Tap guidance", async (t) => {
+  const markup = await render(
+    t,
+    ["dictation", "voiceAgent", "translation"].map((name) =>
+      slot(name, {
+        info: { ...supportedInfo, linuxPttPermissionDenied: true },
+      })
+    ),
+    { platform: "linux" }
+  );
+  assert.doesNotMatch(markup, /<aside|Hold to speak|Start hands-free/);
+  assert.equal(
+    (markup.match(/sudo usermod/g) || []).length,
+    1,
+    "one setup command under Dictation"
+  );
+  assert.equal((markup.match(/Press to start, press again to stop/g) || []).length, 3);
+});
 
 test("native GNOME limitations show their actual reason without an input-group repair", async (t) => {
   const reason = "Your desktop cannot report when a key is released.";
@@ -168,7 +182,7 @@ test("native GNOME limitations show their actual reason without an input-group r
         },
       }),
     ],
-    { platform: "linux", linuxPttAvailable: false }
+    { platform: "linux" }
   );
   assert.match(markup, /Your desktop cannot report when a key is released/);
   assert.doesNotMatch(markup, /sudo usermod|<aside/);

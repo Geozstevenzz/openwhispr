@@ -224,3 +224,169 @@ test("an empty optional shortcut checks its backend without borrowing the dictat
     }
   });
 });
+
+async function linuxDiagnosticHarness(t) {
+  const fs = require("node:fs");
+  const statSync = fs.statSync;
+  const helper = { present: true };
+  t.mock.method(fs, "statSync", (candidate, ...args) => {
+    if (String(candidate).includes("linux-key-listener")) {
+      if (!helper.present) {
+        throw Object.assign(new Error("helper not installed"), { code: "ENOENT" });
+      }
+      return { isFile: () => true };
+    }
+    return statSync(candidate, ...args);
+  });
+  const LinuxKeyManager = require("../../src/helpers/linuxKeyManager");
+  const manager = await withPlatform("linux", async () => new LinuxKeyManager());
+  const context = buildFakeThis(sharedHotkeyManager);
+  context.linuxKeyManager = manager;
+  const IPCHandlers = require(handlersModulePath);
+  (IPCHandlers.default || IPCHandlers).prototype.setupHandlers.call(context);
+  const handler = handlers.get("get-hotkey-mode-info");
+  return {
+    manager,
+    helper,
+    query: (platform = "linux", hotkey = "Control+Shift+Space", slot = "dictation") =>
+      withPlatform(platform, () => handler({ sender: {} }, hotkey, slot)),
+  };
+}
+
+test("mode info distinguishes real binary absence from observed permission denial", async (t) => {
+  const { manager, helper, query } = await linuxDiagnosticHarness(t);
+  helper.present = false;
+  let info = await query();
+  assert.equal(info.supportsPushToTalk, false);
+  assert.equal(info.linuxPttPermissionDenied, false);
+  assert.equal(typeof info.pushToTalkUnavailableReason, "string");
+
+  helper.present = true;
+  info = await query();
+  assert.equal(info.supportsPushToTalk, true);
+  assert.equal(info.linuxPttPermissionDenied, false);
+  manager.handleOutputLine("NO_PERMISSION", "Control+Shift+Space");
+  manager.handleOutputLine("READY", "Control+Shift+Space");
+  for (let reopen = 0; reopen < 2; reopen += 1) {
+    info = await query();
+    assert.equal(
+      info.supportsPushToTalk,
+      true,
+      "the diagnostic preserves the existing capability API"
+    );
+    assert.equal(info.linuxPttPermissionDenied, true);
+  }
+  helper.present = false;
+  info = await query();
+  assert.equal(info.supportsPushToTalk, false);
+  assert.equal(
+    info.linuxPttPermissionDenied,
+    false,
+    "a missing helper cannot be repaired with permissions"
+  );
+});
+
+test("a Linux helper denial does not change native desktop or other platform capability answers", async (t) => {
+  const { manager, query } = await linuxDiagnosticHarness(t);
+  manager.handleOutputLine("NO_PERMISSION", "F9");
+  for (const platform of ["darwin", "win32"]) {
+    const info = await query(platform, "F9");
+    assert.equal(info.supportsPushToTalk, true);
+    assert.equal(info.linuxPttPermissionDenied, false);
+  }
+  for (const backend of ["useKDE", "useGnome", "useHyprland"]) {
+    sharedHotkeyManager[backend] = true;
+    try {
+      for (const slot of ["dictation", "voiceAgent", "translation"]) {
+        const info = await query("linux", "F9", slot);
+        assert.equal(info.linuxPttPermissionDenied, false, `${backend}/${slot}`);
+        assert.equal(info.supportsPushToTalk, backend !== "useHyprland" || slot === "dictation");
+      }
+    } finally {
+      sharedHotkeyManager[backend] = false;
+    }
+  }
+});
+
+test("binary lookup through IPC renders only proven Linux permission repairs in Settings and onboarding", async (t) => {
+  const { manager, helper, query } = await linuxDiagnosticHarness(t);
+  const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
+  const React = require("react");
+  const { createInstance } = require("i18next");
+  const { renderToStaticMarkup } = require("react-dom/server");
+  const { I18nextProvider } = await import("react-i18next");
+  installBrowserGlobals(t);
+  const i18n = createInstance();
+  await i18n.init({
+    lng: "en",
+    resources: { en: { translation: require("../../src/locales/en/translation.json") } },
+    interpolation: { escapeValue: false },
+  });
+  const vite = await createRendererServer(t);
+  const { SettingsHotkeyException, SettingsHotkeyGestureGuide } = await vite.ssrLoadModule(
+    "/components/settings/SettingsHotkeyGuidance.tsx"
+  );
+  const { default: OnboardingHotkeyGestureCard } = await vite.ssrLoadModule(
+    "/components/onboarding/OnboardingHotkeyGestureCard.tsx"
+  );
+  const render = (info) => {
+    const slot = {
+      name: "dictation",
+      hotkey: "Control+Shift+Space",
+      mode: "push",
+      info: { ...info, loaded: true, hyprlandConfigStatus: null },
+      pending: false,
+    };
+    return {
+      settings: renderToStaticMarkup(
+        React.createElement(
+          I18nextProvider,
+          { i18n },
+          React.createElement(SettingsHotkeyGestureGuide, { slots: [slot], platform: "linux" }),
+          React.createElement(SettingsHotkeyException, { slot, platform: "linux" })
+        )
+      ),
+      onboarding: renderToStaticMarkup(
+        React.createElement(
+          I18nextProvider,
+          { i18n },
+          React.createElement(OnboardingHotkeyGestureCard, {
+            confirmed: true,
+            slot: "dictation",
+            hotkey: slot.hotkey,
+            mode: "push",
+            platform: "linux",
+            ...info,
+          })
+        )
+      ),
+    };
+  };
+
+  helper.present = false;
+  assert.equal(manager.isAvailable(), false);
+  for (const markup of Object.values(render(await query()))) {
+    assert.match(markup, /Press to start, press again to stop/);
+    assert.match(markup, /Push-to-Talk native listener not available/);
+    assert.doesNotMatch(
+      markup,
+      /sudo usermod|Your user needs access|Hold to speak|Start hands-free/
+    );
+  }
+  helper.present = true;
+  for (const markup of Object.values(render(await query()))) {
+    assert.match(markup, /Hold to speak/);
+    assert.doesNotMatch(markup, /sudo usermod/);
+  }
+  manager.handleOutputLine("NO_PERMISSION", "Control+Shift+Space");
+  manager.handleOutputLine("READY", "Control+Shift+Space");
+  manager.stop();
+  for (let reopen = 0; reopen < 2; reopen += 1) {
+    for (const markup of Object.values(render(await query()))) {
+      assert.match(markup, /Press to start, press again to stop/);
+      assert.match(markup, /Your user needs access to keyboard input devices/);
+      assert.equal((markup.match(/sudo usermod/g) || []).length, 1);
+      assert.doesNotMatch(markup, /Hold to speak|Start hands-free/);
+    }
+  }
+});
