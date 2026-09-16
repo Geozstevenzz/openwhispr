@@ -3,13 +3,17 @@ const assert = require("node:assert/strict");
 const Module = require("node:module");
 
 // Execute the actual IPC closures, WindowManager cache setter, HotkeyManager,
-// and KDE adapter. Only Electron and desktop D-Bus transport are simulated.
+// and KDE adapter, including macOS fallback ownership. Only Electron and desktop
+// D-Bus transport are simulated.
 
 const handlersModulePath = require.resolve("../../src/helpers/ipcHandlers");
 const originalLoad = Module._load;
 
 const handlers = new Map();
 const broadcasts = [];
+const electronRegistrations = new Map();
+const refusedAccelerators = new Set();
+const registrationEvents = [];
 
 const fakeWindow = {
   isDestroyed: () => false,
@@ -42,10 +46,16 @@ const electronStub = {
     }
   },
   globalShortcut: {
-    register: () => true,
-    unregister: () => undefined,
-    isRegistered: () => false,
-    unregisterAll: () => undefined,
+    register: (accelerator, callback) => {
+      registrationEvents.push(["register", accelerator]);
+      if (refusedAccelerators.has(accelerator) || electronRegistrations.has(accelerator))
+        return false;
+      electronRegistrations.set(accelerator, callback);
+      return true;
+    },
+    unregister: (accelerator) => electronRegistrations.delete(accelerator),
+    isRegistered: (accelerator) => electronRegistrations.has(accelerator),
+    unregisterAll: () => electronRegistrations.clear(),
   },
   shell: {},
   dialog: {},
@@ -96,8 +106,11 @@ test.after(() => {
   else process.env.XDG_SESSION_TYPE = originalSessionType;
 });
 
-async function setup(slotName, initialKey = "F9", initialMode = "push") {
+async function setup(slotName, initialKey = "F9", initialMode = "push", { backend = "kde" } = {}) {
   broadcasts.length = 0;
+  electronRegistrations.clear();
+  refusedAccelerators.clear();
+  registrationEvents.length = 0;
   const manager = new HotkeyManager();
   manager.currentHotkey = "F8";
   const kde = new KDEShortcutManager();
@@ -136,8 +149,8 @@ async function setup(slotName, initialKey = "F9", initialMode = "push") {
       callback(null, keys);
     },
   };
-  manager.useKDE = true;
-  manager.kdeManager = kde;
+  manager.useKDE = backend === "kde";
+  manager.kdeManager = backend === "kde" ? kde : null;
   manager.slotActivationModes[slotName] = initialMode;
   const callback = (key, phase) => {
     phases.push(phase);
@@ -159,6 +172,7 @@ async function setup(slotName, initialKey = "F9", initialMode = "push") {
       _translationHotkeyCallback: callback,
       isDictationProcessing: () => false,
       _sendDictationToggle: (channel) => actions.push(channel),
+      startMacCompoundPushToTalk: (hotkey, kind) => actions.push(["hold", hotkey, kind]),
       getSlotActivationMode: WindowManager.prototype.getSlotActivationMode,
       setSlotActivationModeCache: WindowManager.prototype.setSlotActivationModeCache,
       reconcileNativeKeyListeners: () => undefined,
@@ -339,3 +353,115 @@ test("KDE validates the applied primary key without rejecting ignored conflictin
   assert.deepEqual(h.manager.getSlotHotkeys("translation"), ["F10"]);
   assert.equal(h.bindings.get("translation"), KDEShortcutManager.convertToQtKeyCode("F10"));
 });
+
+function useMac(t) {
+  const previous = Object.getOwnPropertyDescriptor(process, "platform");
+  Object.defineProperty(process, "platform", { value: "darwin", configurable: true });
+  t.after(() => Object.defineProperty(process, "platform", previous));
+}
+
+for (const slotName of ["voiceAgent", "translation"]) {
+  for (const hotkey of ["MediaPlayPause", "F24", "F9,MediaPlayPause"]) {
+    test(`${slotName}: macOS ${hotkey} settles the entire replacement to working Tap`, async (t) => {
+      useMac(t);
+      const h = await setup(slotName, "F9", "push", { backend: "global" });
+      assert.deepEqual(h.manager.getMacNativeListenerConfig([slotName]).watchKeys, ["F9"]);
+      assert.equal((await h.update(hotkey)).success, true);
+      const keys = hotkey.split(",");
+      assert.deepEqual(h.manager.getSlotHotkeys(slotName), keys);
+      assert.equal(h.manager.getSlotActivationMode(slotName), "tap");
+      assert.equal(h.windowManager.getSlotActivationMode(slotName), "tap");
+      assert.deepEqual(h.manager.getMacNativeListenerConfig([slotName]).watchKeys, []);
+      assert.deepEqual([...electronRegistrations.keys()], keys);
+      assert.deepEqual(h.saved, [
+        [`${slotName}Key`, hotkey],
+        [slotName, "tap"],
+      ]);
+      assert.deepEqual(broadcasts, [{ key: `${slotName}ActivationMode`, value: "tap" }]);
+      assert.deepEqual(h.notifications, [hotkey]);
+      await electronRegistrations.get(keys.at(-1))();
+      assert.deepEqual(h.actions, [
+        slotName === "voiceAgent" ? "toggle-voice-agent" : "toggle-translation",
+      ]);
+    });
+  }
+
+  test(`${slotName}: a refused macOS Tap replacement preserves the working Hold callback`, async (t) => {
+    useMac(t);
+    const h = await setup(slotName, "Command+Period", "push", { backend: "global" });
+    refusedAccelerators.add("MediaPlayPause");
+    const previousCallback = h.manager.slots.get(slotName).callback;
+    assert.equal((await h.update("MediaPlayPause")).success, false);
+    assert.deepEqual(h.manager.getSlotHotkeys(slotName), ["Command+Period"]);
+    assert.equal(h.manager.getSlotActivationMode(slotName), "push");
+    assert.equal(h.windowManager.getSlotActivationMode(slotName), "push");
+    assert.equal(h.manager.slots.get(slotName).callback, previousCallback);
+    assert.deepEqual(h.manager.getMacNativeListenerConfig([slotName]).watchKeys, []);
+    assert.deepEqual([...electronRegistrations.keys()], ["Command+Period"]);
+    assert.deepEqual(h.saved, []);
+    assert.deepEqual(broadcasts, []);
+    assert.deepEqual(h.notifications, []);
+    await electronRegistrations.get("Command+Period")();
+    assert.deepEqual(h.actions, [
+      ["hold", "Command+Period", slotName === "voiceAgent" ? "assistant" : "translation"],
+    ]);
+  });
+}
+
+for (const storage of ["env", "localStorage"]) {
+  for (const hotkey of ["MediaPlayPause", "F24", "F9,MediaPlayPause"]) {
+    test(`macOS startup retains ${storage} ${hotkey} and selects Tap before registration`, async (t) => {
+      useMac(t);
+      const previousKey = process.env.DICTATION_KEY;
+      t.after(() => {
+        if (previousKey === undefined) delete process.env.DICTATION_KEY;
+        else process.env.DICTATION_KEY = previousKey;
+      });
+      if (storage === "env") process.env.DICTATION_KEY = hotkey;
+      else delete process.env.DICTATION_KEY;
+      electronRegistrations.clear();
+      refusedAccelerators.clear();
+      registrationEvents.length = 0;
+      const manager = new HotkeyManager();
+      manager.activationMode = "push";
+      const persistedKeys = [];
+      manager._persistHotkeyToEnvFile = async (key) => persistedKeys.push(key);
+      const actions = [];
+      const windowManager = {
+        hotkeyManager: manager,
+        _cachedActivationMode: "push",
+        isDictationProcessing: () => false,
+        getSlotActivationMode: WindowManager.prototype.getSlotActivationMode,
+        _sendDictationToggle: (channel) => actions.push(channel),
+      };
+      manager.on("dictation-activation-mode-settled", (mode) => {
+        registrationEvents.push(["mode", mode]);
+        windowManager._cachedActivationMode = mode;
+      });
+      const mainWindow = {
+        isDestroyed: () => false,
+        webContents: {
+          isLoading: () => false,
+          executeJavaScript: async () => hotkey,
+          send: () => undefined,
+        },
+      };
+      await manager.initializeHotkey(
+        mainWindow,
+        WindowManager.prototype.createHotkeyCallback.call(windowManager)
+      );
+      const keys = hotkey.split(",");
+      assert.deepEqual(manager.getSlotHotkeys("dictation"), keys);
+      assert.equal(manager.getSlotActivationMode("dictation"), "tap");
+      assert.equal(windowManager.getSlotActivationMode("dictation"), "tap");
+      assert.deepEqual(manager.getMacNativeListenerConfig(["dictation"]).watchKeys, []);
+      assert.deepEqual(registrationEvents, [
+        ["mode", "tap"],
+        ...keys.map((key) => ["register", key]),
+      ]);
+      assert.deepEqual(persistedKeys, storage === "localStorage" ? [hotkey] : []);
+      await electronRegistrations.get(keys.at(-1))();
+      assert.deepEqual(actions, ["toggle-dictation"]);
+    });
+  }
+}
