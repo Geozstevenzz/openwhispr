@@ -257,6 +257,30 @@ for (const platform of ["win32", "linux"]) {
     assert.equal(h.bound.has(previous), true);
   });
 
+  test(`${platform}: fallback cleanup cannot re-enable a failed Hold before an explicit retry succeeds`, async (t) => {
+    const h = makeHarness(t, platform);
+    h.hotkeyManager.setupShortcuts("F9", h.windowManager.createHotkeyCallback());
+    const initial = h.hotkeyManager.resolveActivationMode("F9");
+    h.children[0].stdout.emit("data", "READY\n");
+    await initial;
+    await h.windowManager.setActivationModeCache("push");
+    h.children[0].emit("error", new Error("hook lost"));
+    await h.flush();
+    assert.equal(h.windowManager.getActivationMode(), "tap");
+    assert.equal(h.nativeKeyManager.readiness.size, 0, "main removed unused failed readers");
+    assert.equal(h.hotkeyManager.supportsPushToTalk("F9"), false);
+    assert.equal(await h.windowManager.setActivationModeCache("push"), false);
+    assert.equal(h.windowManager.getActivationMode(), "tap");
+    const edit = h.windowManager.updateHotkey("F9");
+    assert.equal(h.children.length, 2);
+    assert.equal(h.hotkeyManager.supportsPushToTalk("F9"), false);
+    assert.equal(await h.windowManager.setActivationModeCache("push"), false);
+    h.children[1].stdout.emit("data", "READY\n");
+    assert.equal((await edit).success, true);
+    assert.equal(h.hotkeyManager.supportsPushToTalk("F9"), true);
+    assert.equal(h.windowManager.getActivationMode(), "push");
+  });
+
   test(`${platform}: successful readiness enables Hold; a candidate reader never duplicates Electron Tap`, async (t) => {
     t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1000 });
     const h = makeHarness(t, platform);

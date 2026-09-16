@@ -24,6 +24,9 @@ class WindowsKeyManager extends EventEmitter {
     this.hasReportedUnavailable = false;
     this.listeners = new Map(); // key string -> current reader generation
     this.readiness = new Map();
+    // Reader cleanup must not erase a failed capability verdict. Only a
+    // fresh reader reaching READY can restore it.
+    this.failedKeys = new Set();
     this.nextGeneration = 1;
   }
 
@@ -38,12 +41,12 @@ class WindowsKeyManager extends EventEmitter {
       if (!desired.has(key)) this._stopKey(key);
     }
     for (const key of desired) {
-      if (!this.readiness.has(key)) this._startKey(key);
+      if (!this.readiness.has(key) && !this.failedKeys.has(key)) this._startKey(key);
     }
   }
 
   canWatch(key) {
-    return this.isSupported && this.isAvailable() && this.readiness.get(key)?.state !== "failed";
+    return this.isSupported && this.isAvailable() && !this.failedKeys.has(key);
   }
 
   async ensureReady(keys) {
@@ -148,6 +151,7 @@ class WindowsKeyManager extends EventEmitter {
   _failKey(key, entry, error) {
     if (this.readiness.get(key) !== entry || entry.state === "failed") return;
     entry.state = "failed";
+    this.failedKeys.add(key);
     clearTimeout(entry.timer);
     entry.resolve(false);
     this.listeners.delete(key);
@@ -179,6 +183,7 @@ class WindowsKeyManager extends EventEmitter {
     if (line === "READY") {
       if (entry.state === "ready") return;
       entry.state = "ready";
+      this.failedKeys.delete(key);
       clearTimeout(entry.timer);
       entry.resolve(true);
       this.emit("ready", key);

@@ -95,6 +95,28 @@ for (const platform of ["win32", "linux"]) {
     });
   }
 
+  test(`${platform}: failure remains unavailable after cleanup and through a pending retry`, async (t) => {
+    const { manager, children } = loadManager(t, platform);
+    const first = manager.ensureReady(["F9"]);
+    children[0].emit("error", new Error("hook rejected"));
+    assert.equal(await first, false);
+    manager.setKeys([]);
+    assert.equal(manager.readiness.size, 0);
+    assert.equal(manager.canWatch("F9"), false);
+    manager.setKeys(["F9"]);
+    assert.equal(children.length, 1, "ordinary reconciliation cannot retry a cleaned-up failure");
+    const retry = manager.ensureReady(["F9"]);
+    assert.equal(children.length, 2);
+    assert.equal(
+      manager.canWatch("F9"),
+      false,
+      "a pending retry has no successful capability verdict"
+    );
+    children[1].stdout.emit("data", "READY\n");
+    assert.equal(await retry, true);
+    assert.equal(manager.canWatch("F9"), true);
+  });
+
   test(`${platform}: intentional stop cancels readiness without a failure`, async (t) => {
     const { manager, children, failures } = loadManager(t, platform);
     const ready = manager.ensureReady(["F9"]);
