@@ -536,7 +536,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   relaunchApp: () => ipcRenderer.invoke("relaunch-app"),
   updateHotkey: (hotkey) => ipcRenderer.invoke("update-hotkey", hotkey),
   setHotkeyListeningMode: (enabled) => ipcRenderer.invoke("set-hotkey-listening-mode", enabled),
-  getHotkeyModeInfo: (hotkey, slot) => ipcRenderer.invoke("get-hotkey-mode-info", hotkey, slot),
+  getHotkeyModeInfo: (hotkey, slot, language) =>
+    ipcRenderer.invoke("get-hotkey-mode-info", hotkey, slot, language),
   getHyprlandConfigStatus: () => ipcRenderer.invoke("get-hyprland-config-status"),
   startWindowDrag: () => ipcRenderer.invoke("start-window-drag"),
   stopWindowDrag: () => ipcRenderer.invoke("stop-window-drag"),

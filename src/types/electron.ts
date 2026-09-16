@@ -2028,7 +2028,8 @@ declare global {
       setHotkeyListeningMode?: (enabled: boolean) => Promise<{ success: boolean }>;
       getHotkeyModeInfo?: (
         hotkey?: string,
-        slot?: "dictation" | "voiceAgent" | "translation"
+        slot?: "dictation" | "voiceAgent" | "translation",
+        language?: string
       ) => Promise<{
         isUsingGnome: boolean;
         isUsingHyprland: boolean;

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import logger from "../utils/logger";
+import { useUiLocale } from "./useUiLocale";
 
 export interface HyprlandConfigStatus {
   canWrite: boolean;
@@ -38,10 +39,11 @@ export function useHotkeyModeInfo(
   hotkey?: string,
   slot?: "dictation" | "voiceAgent" | "translation"
 ): HotkeyModeInfo {
+  const language = useUiLocale();
   const [denialGeneration, setDenialGeneration] = useState(0);
   const request = useMemo(
-    () => ({ scope, hotkey, slot, denialGeneration }),
-    [scope, hotkey, slot, denialGeneration]
+    () => ({ scope, hotkey, slot, language, denialGeneration }),
+    [scope, hotkey, slot, language, denialGeneration]
   );
   const [resolved, setResolved] = useState<{
     request: typeof request;
@@ -55,11 +57,11 @@ export function useHotkeyModeInfo(
   }, []);
 
   useEffect(() => {
-    const { scope, hotkey, slot } = request;
+    const { scope, hotkey, slot, language } = request;
     let cancelled = false;
     const checkHotkeyMode = async () => {
       try {
-        const info = await window.electronAPI?.getHotkeyModeInfo?.(hotkey, slot);
+        const info = await window.electronAPI?.getHotkeyModeInfo?.(hotkey, slot, language);
         if (!info || cancelled) return;
         const hyprlandConfigStatus = info.isUsingHyprland
           ? ((await window.electronAPI?.getHyprlandConfigStatus?.()) ?? null)
@@ -87,10 +89,12 @@ export function useHotkeyModeInfo(
     };
   }, [request]);
 
-  // Keep backend/editor limits stable while a new key is checked, but never
-  // present the previous key's capability as a completed check for this one.
+  // Keep backend/editor limits stable while a new key or language is checked,
+  // but do not present the previous request's explanation as current.
+  const loaded = resolved?.request === request;
   return {
     ...(resolved?.info ?? DEFAULT_INFO),
-    loaded: resolved?.request === request,
+    pushToTalkUnavailableReason: loaded ? resolved.info.pushToTalkUnavailableReason : null,
+    loaded,
   };
 }

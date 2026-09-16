@@ -83,7 +83,7 @@ const autoStart = require("./autoStart");
 const { getRelaunchOptions, getRelaunchWaiter } = require("./autoStartPolicy");
 const HyprlandShortcutManager = require("./hyprlandShortcut");
 const AssemblyAiStreaming = require("./assemblyAiStreaming");
-const { i18nMain, changeLanguage } = require("./i18nMain");
+const { i18nMain, changeLanguage, normalizeUiLanguage } = require("./i18nMain");
 const DeepgramStreaming = require("./deepgramStreaming");
 const { GeminiLiveStreaming, GEMINI_LIVE_MODEL } = require("./geminiLiveStreaming");
 const CortiStreaming = require("./cortiStreaming");
@@ -4323,40 +4323,48 @@ class IPCHandlers {
       return { success: true };
     });
 
-    ipcMain.handle("get-hotkey-mode-info", async (_event, requestedHotkey, requestedSlot) => {
-      const hotkeyManager = this.windowManager.hotkeyManager;
-      const slotName =
-        typeof requestedSlot === "string" && requestedSlot ? requestedSlot : "dictation";
-      // An explicitly empty optional shortcut asks about that slot's backend,
-      // not the current dictation key (which may itself be unable to Hold).
-      const hotkey =
-        typeof requestedHotkey === "string" && (requestedHotkey.trim() || slotName !== "dictation")
-          ? requestedHotkey.split(",")[0].trim()
-          : hotkeyManager.getCurrentHotkey();
-      const isUsingNativeShortcut = this.windowManager.isUsingNativeShortcutHotkeys();
-      const supportsPushToTalk =
-        process.platform === "linux"
-          ? isUsingNativeShortcut
-            ? hotkeyManager.supportsPushToTalk(hotkey, slotName)
-            : this.linuxKeyManager?.isAvailable?.() === true
-          : hotkeyManager.supportsPushToTalk(hotkey, slotName);
+    ipcMain.handle(
+      "get-hotkey-mode-info",
+      async (_event, requestedHotkey, requestedSlot, requestedLanguage) => {
+        const hotkeyManager = this.windowManager.hotkeyManager;
+        const slotName =
+          typeof requestedSlot === "string" && requestedSlot ? requestedSlot : "dictation";
+        const language =
+          typeof requestedLanguage === "string"
+            ? normalizeUiLanguage(requestedLanguage)
+            : undefined;
+        // An explicitly empty optional shortcut asks about that slot's backend,
+        // not the current dictation key (which may itself be unable to Hold).
+        const hotkey =
+          typeof requestedHotkey === "string" &&
+          (requestedHotkey.trim() || slotName !== "dictation")
+            ? requestedHotkey.split(",")[0].trim()
+            : hotkeyManager.getCurrentHotkey();
+        const isUsingNativeShortcut = this.windowManager.isUsingNativeShortcutHotkeys();
+        const supportsPushToTalk =
+          process.platform === "linux"
+            ? isUsingNativeShortcut
+              ? hotkeyManager.supportsPushToTalk(hotkey, slotName)
+              : this.linuxKeyManager?.isAvailable?.() === true
+            : hotkeyManager.supportsPushToTalk(hotkey, slotName);
 
-      return {
-        isUsingGnome: this.windowManager.isUsingGnomeHotkeys(),
-        isUsingHyprland: this.windowManager.isUsingHyprlandHotkeys(),
-        isUsingKDE: this.windowManager.isUsingKDEHotkeys(),
-        isUsingNativeShortcut,
-        supportsPushToTalk,
-        linuxPttPermissionDenied:
-          process.platform === "linux" &&
-          !isUsingNativeShortcut &&
-          supportsPushToTalk &&
-          this.linuxKeyManager?.permissionDenied === true,
-        pushToTalkUnavailableReason: supportsPushToTalk
-          ? null
-          : hotkeyManager.getPushToTalkUnavailableReason(hotkey, slotName),
-      };
-    });
+        return {
+          isUsingGnome: this.windowManager.isUsingGnomeHotkeys(),
+          isUsingHyprland: this.windowManager.isUsingHyprlandHotkeys(),
+          isUsingKDE: this.windowManager.isUsingKDEHotkeys(),
+          isUsingNativeShortcut,
+          supportsPushToTalk,
+          linuxPttPermissionDenied:
+            process.platform === "linux" &&
+            !isUsingNativeShortcut &&
+            supportsPushToTalk &&
+            this.linuxKeyManager?.permissionDenied === true,
+          pushToTalkUnavailableReason: supportsPushToTalk
+            ? null
+            : hotkeyManager.getPushToTalkUnavailableReason(hotkey, slotName, language),
+        };
+      }
+    );
 
     ipcMain.handle("get-hyprland-config-status", async () => {
       if (!this.windowManager.isUsingHyprlandHotkeys()) return null;

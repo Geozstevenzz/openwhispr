@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const Module = require("node:module");
+const { i18nMain, changeLanguage } = require("../../src/helpers/i18nMain");
 
 // The get-hotkey-mode-info handler is what the Settings ActivationModeSelector
 // rows actually read: hotkeyManager.supportsPushToTalk being honest is not
@@ -223,6 +224,146 @@ test("an empty optional shortcut checks its backend without borrowing the dictat
       sharedHotkeyManager.useHyprland = false;
     }
   });
+});
+
+test("mode info uses a normalized requested language without changing the main language", async () => {
+  changeLanguage("de");
+  sharedHotkeyManager.useKDE = true;
+  try {
+    await withPlatform("linux", async () => {
+      const english = await modeInfoHandler({ sender: {} }, "Control+Super", "dictation", "en");
+      assert.match(english.pushToTalkUnavailableReason, /has no regular key/);
+      assert.equal(i18nMain.language, "de");
+
+      for (const language of [undefined, null, 42, "de-DE"]) {
+        const german = await modeInfoHandler(
+          { sender: {} },
+          "Control+Super",
+          "dictation",
+          language
+        );
+        assert.match(german.pushToTalkUnavailableReason, /enthält keine normale Taste/);
+        assert.equal(german.supportsPushToTalk, false);
+        assert.equal(german.isUsingNativeShortcut, true);
+        assert.equal(i18nMain.language, "de");
+      }
+
+      const supported = await modeInfoHandler({ sender: {} }, "F9", "translation", "en");
+      assert.equal(supported.supportsPushToTalk, true);
+      assert.equal(supported.pushToTalkUnavailableReason, null);
+      assert.equal(supported.isUsingNativeShortcut, true);
+      assert.equal(i18nMain.language, "de");
+    });
+  } finally {
+    sharedHotkeyManager.useKDE = false;
+    changeLanguage("en");
+  }
+});
+
+test("every unavailable Hold explanation honors its request language", async () => {
+  changeLanguage("en");
+  const german = require("../../src/locales/de/translation.json");
+  try {
+    await withPlatform("linux", async () => {
+      sharedHotkeyManager.useHyprland = true;
+      const hyprland = await modeInfoHandler({ sender: {} }, "F9", "voiceAgent", "de");
+      assert.equal(hyprland.supportsPushToTalk, false);
+      assert.equal(
+        hyprland.pushToTalkUnavailableReason,
+        german.hotkey.errors.holdUnsupportedOnHyprland
+      );
+
+      sharedHotkeyManager.useHyprland = false;
+      sharedHotkeyManager.useGnome = true;
+      sharedHotkeyManager.gnomeManager = { supportsPushToTalk: () => false };
+      const gnome = await modeInfoHandler({ sender: {} }, "F9", "translation", "de");
+      assert.equal(gnome.supportsPushToTalk, false);
+      assert.equal(
+        gnome.pushToTalkUnavailableReason,
+        german.hotkey.errors.holdUnsupportedOnDesktop
+      );
+
+      sharedHotkeyManager.useGnome = false;
+      sharedHotkeyManager.gnomeManager = null;
+      const evdev = await modeInfoHandler({ sender: {} }, "F9", "dictation", "de");
+      assert.equal(evdev.supportsPushToTalk, false);
+      assert.equal(evdev.pushToTalkUnavailableReason, german.windows.pttUnavailable);
+      assert.equal(i18nMain.language, "en");
+    });
+  } finally {
+    sharedHotkeyManager.useHyprland = false;
+    sharedHotkeyManager.useGnome = false;
+    sharedHotkeyManager.gnomeManager = null;
+    changeLanguage("en");
+  }
+});
+
+test("mounted Settings guidance changes language before preference synchronization completes", async (t) => {
+  const React = require("react");
+  const { createRoot } = require("react-dom/client");
+  const {
+    createRendererServer,
+    installBrowserGlobals,
+    installHookDom,
+  } = require("../lib/rendererTestHarness");
+  let root;
+  let rendererI18n;
+  const pendingLanguageSyncs = [];
+  const requests = [];
+  t.after(async () => {
+    if (root) await React.act(async () => root.unmount());
+    if (rendererI18n) await rendererI18n.changeLanguage("en");
+    sharedHotkeyManager.useKDE = false;
+    changeLanguage("en");
+  });
+  sharedHotkeyManager.useKDE = true;
+  changeLanguage("en");
+  installBrowserGlobals(t, {
+    initialStorage: { uiLanguage: "en" },
+    window: {
+      electronAPI: {
+        getHotkeyModeInfo: async (hotkey, slot, language) => {
+          requests.push({ hotkey, slot, language });
+          return withPlatform("linux", () =>
+            modeInfoHandler({ sender: {} }, hotkey, slot, language)
+          );
+        },
+        setUiLanguage: (language) =>
+          new Promise((resolve) => pendingLanguageSyncs.push({ language, resolve })),
+      },
+    },
+  });
+  const container = installHookDom(t);
+  const vite = await createRendererServer(t);
+  ({ default: rendererI18n } = await vite.ssrLoadModule("/i18n.ts"));
+  const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+  const { useHotkeyModeInfo } = await vite.ssrLoadModule("/hooks/useHotkeyModeInfo.ts");
+  let result;
+  function SettingsLifetimeHarness() {
+    result = useHotkeyModeInfo("settings", "Control+Super", "dictation");
+    return null;
+  }
+  root = createRoot(container);
+  await React.act(async () => root.render(React.createElement(SettingsLifetimeHarness)));
+  assert.match(result.pushToTalkUnavailableReason, /has no regular key/);
+
+  await React.act(async () => useSettingsStore.getState().setUiLanguage("de"));
+  assert.equal(rendererI18n.resolvedLanguage, "de");
+  assert.equal(i18nMain.language, "en", "the main preference has not caught up");
+  assert.equal(pendingLanguageSyncs.length, 1);
+  assert.equal(pendingLanguageSyncs[0].language, "de");
+  assert.equal(result.loaded, true);
+  assert.match(result.pushToTalkUnavailableReason, /enthält keine normale Taste/);
+  assert.deepEqual(requests.at(-1), { hotkey: "Control+Super", slot: "dictation", language: "de" });
+
+  changeLanguage("de");
+  await React.act(async () => pendingLanguageSyncs[0].resolve({ success: true, language: "de" }));
+  await React.act(async () => useSettingsStore.getState().setUiLanguage("en"));
+  assert.equal(i18nMain.language, "de");
+  assert.match(result.pushToTalkUnavailableReason, /has no regular key/);
+  assert.equal(result.loaded, true);
+  assert.equal(pendingLanguageSyncs.length, 2);
+  await React.act(async () => pendingLanguageSyncs[1].resolve({ success: true, language: "en" }));
 });
 
 async function linuxDiagnosticHarness(t) {
