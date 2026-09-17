@@ -18,7 +18,9 @@ export default function ActionProcessingOverlay({
   progress = null,
 }: ActionProcessingOverlayProps) {
   const { t } = useTranslation();
-  const [visible, setVisible] = useState(false);
+  // A mount mid-run is a note switch (NoteEditor is keyed by note id); the
+  // overlay must show without waiting for a state change that already happened.
+  const [visible, setVisible] = useState(state !== "idle");
   const [prevState, setPrevState] = useState(state);
 
   if (state !== prevState) {

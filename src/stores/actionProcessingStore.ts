@@ -134,6 +134,19 @@ Rules:
 
 These notes will be merged with the notes from the other parts afterwards.`;
 
+// A long plain note has no speakers, decisions or action items to extract; its
+// parts are condensed as a document so the final pass sees the note's own
+// content and structure rather than a meeting digest of it.
+const PART_DOCUMENT_SYSTEM_PROMPT = `You are condensing one consecutive part of a longer document into working notes. The material is either the document's own text or working notes already written from an earlier pass.
+
+Write detailed working notes in markdown for this part only, following the document's order and keeping any headings it uses. Be thorough: these notes replace the material for whoever applies the final instructions, so anything you leave out is lost. Keep every fact, figure, date, name, argument and conclusion, stated as in the material.
+
+Rules:
+- Do NOT include a title, a preamble, or a summary of the whole document; you have only seen this part.
+- Do NOT use tables, horizontal rules, or block quotes.
+
+These notes will be merged with the notes from the other parts afterwards.`;
+
 const MERGE_ADDENDUM = `
 
 The material includes ordered working notes from consecutive parts of the user's source, each under a "## Notes from part N of M" heading. Manual notes and meeting context may precede them. Consider all parts together and apply the instructions above, including their requested scope, format, and length. Preserve relevant facts accurately and consolidate repetition. Do not mention the parts or the merging.`;
@@ -210,9 +223,24 @@ async function runInParts(run: EnhancementRun, budget: LocalContextBudget): Prom
   const body = hasTranscript ? material.transcript : material.notes || run.noteContent;
   const manualNotes = hasTranscript ? material.notes : "";
   const context = material.meetingContext;
+  // Only a diarised transcript carries "Label:" lines; a live recording's text
+  // is one plain paragraph whose first colon is not a speaker.
+  const hasSpeakerLabels = hasTranscript && run.options.isMeetingNote === true;
+  const partSystemPrompt = hasTranscript ? PART_NOTES_SYSTEM_PROMPT : PART_DOCUMENT_SYSTEM_PROMPT;
+  const mergeSystemPrompt = run.systemPrompt + MERGE_ADDENDUM;
+
+  // The final pass carries the manual notes and context whole; no amount of
+  // consolidating the part-notes can make room for them if they do not fit.
+  const mergeFixedTokens =
+    estimateNoteTokens(manualNotes) +
+    estimateNoteTokens(context) +
+    estimateNoteTokens(mergeSystemPrompt) +
+    NOTE_OUTPUT_MAX_TOKENS +
+    CONTEXT_RESERVE_TOKENS;
+  if (mergeFixedTokens > budget.maxContextTokens) throw tooLongForModel(budget.modelName);
 
   const fixedTokens =
-    estimateNoteTokens(PART_NOTES_SYSTEM_PROMPT) +
+    estimateNoteTokens(partSystemPrompt) +
     estimateNoteTokens(context) +
     PART_NOTES_MAX_TOKENS +
     CONTEXT_RESERVE_TOKENS;
@@ -222,14 +250,16 @@ async function runInParts(run: EnhancementRun, budget: LocalContextBudget): Prom
   );
   if (chunkBudget < MIN_CHUNK_BUDGET_TOKENS) throw tooLongForModel(budget.modelName);
 
-  const chunks = planNoteChunks(body, chunkBudget, { preserveSpeakerLabels: hasTranscript });
+  const chunks = planNoteChunks(body, chunkBudget, { preserveSpeakerLabels: hasSpeakerLabels });
   if (chunks.length === 0) throw tooLongForModel(budget.modelName);
   const total = chunks.length + 1;
   const partConfig: ReasoningConfig = {
     ...run.requestConfig,
-    systemPrompt: PART_NOTES_SYSTEM_PROMPT,
+    systemPrompt: partSystemPrompt,
     maxTokens: PART_NOTES_MAX_TOKENS,
-    requireCompleteOutput: true,
+    // Working notes are scaffolding: reasoning would spend the part's whole
+    // output budget before a line of them is written.
+    disableThinking: true,
   };
 
   const summarisePart = async (
@@ -241,7 +271,12 @@ async function runInParts(run: EnhancementRun, budget: LocalContextBudget): Prom
     if (run.isCancelled()) throw new Error("cancelled");
     const content = [context, `## ${heading}\n${text}`].filter(Boolean).join("\n\n");
     try {
-      return await reasoningService.processText(content, run.modelId, null, partConfig);
+      return await reasoningService.processText(content, run.modelId, null, {
+        ...partConfig,
+        // A truncated part is halved so both halves get the full output budget;
+        // at the split limit a clipped reply loses a tail, failing loses the note.
+        requireCompleteOutput: depth < MAX_SPLIT_DEPTH,
+      });
     } catch (error) {
       const truncated = (error as LocalInferenceError | null)?.code === "OUTPUT_TRUNCATED";
       if ((!isContextTooLarge(error) && !truncated) || depth >= MAX_SPLIT_DEPTH) throw error;
@@ -263,12 +298,11 @@ async function runInParts(run: EnhancementRun, budget: LocalContextBudget): Prom
       await summarisePart(
         chunks[index],
         `${materialLabel} (part ${index + 1} of ${chunks.length})`,
-        hasTranscript
+        hasSpeakerLabels
       )
     );
   }
 
-  const mergeSystemPrompt = run.systemPrompt + MERGE_ADDENDUM;
   let sections = partNotes;
   for (let round = 0; round <= MAX_REDUCE_ROUNDS; round += 1) {
     if (run.isCancelled()) throw new Error("cancelled");

@@ -14,13 +14,13 @@ const SMALL_BUDGET = { success: true, maxContextTokens: 8192, modelName: "Qwen3.
 
 async function loadStore(
   t,
-  { budget = SMALL_BUDGET, mode = "local", failFirst = false, processText } = {}
+  { budget = SMALL_BUDGET, mode = "local", storage = {}, failFirst = false, processText } = {}
 ) {
   const updates = [];
   const budgetCalls = [];
   installBrowserGlobals(t, {
     // The real settings store reads the route from storage at load time.
-    initialStorage: { noteFormattingMode: mode, noteFormattingUseLocal: "true" },
+    initialStorage: { noteFormattingMode: mode, noteFormattingUseLocal: "true", ...storage },
     window: {
       electronAPI: {
         updateNote: async (noteId, payload) => {
@@ -246,18 +246,24 @@ test("a truncated part is split and only complete working notes reach the merge"
   assert.equal(calls.at(-1).config.requireCompleteOutput, undefined);
 });
 
-test("repeated part truncation stops at the split limit without saving", async (t) => {
+test("a part still truncated at the split limit is kept clipped instead of failing the note", async (t) => {
   const { store, calls, updates } = await loadStore(t, {
     failFirst: true,
-    processText: () => {
-      throw Object.assign(new Error("truncated"), { code: "OUTPUT_TRUNCATED" });
+    processText: (text, config) => {
+      if (config.maxTokens === 4096) return "Final notes";
+      if (config.requireCompleteOutput) {
+        throw Object.assign(new Error("truncated"), { code: "OUTPUT_TRUNCATED" });
+      }
+      return "Clipped working notes";
     },
   });
   run(store, 18, longMaterial(20));
   await waitForResult(store, updates);
-  assert.equal(updates.length, 0);
-  assert.equal(calls.length, 5);
-  assert.equal(store.consumeErrorEvents()[0].message, "truncated");
+  assert.equal(updates.length, 1);
+  assert.deepEqual(store.consumeErrorEvents(), []);
+  // 1 + 2 + 4 complete attempts, then 8 leaves that accept a clipped reply.
+  assert.equal(calls.filter((call) => call.config.maxTokens === 2048).length, 15);
+  assert.ok(calls.at(-1).text.includes("Clipped working notes"));
 });
 
 test("cancelling a refused part prevents its first recursive retry", async (t) => {
@@ -540,4 +546,81 @@ test("the whole-note request and the merge refuse a reply the window clipped", a
   assert.equal(calls[0].config.refuseClippedByWindow, true);
   assert.equal(calls.at(-1).config.refuseClippedByWindow, true);
   assert.equal(calls.at(-1).config.maxTokens, 4096);
+});
+
+test("a transcript without speaker labels is packed without a prose prefix", async (t) => {
+  const { store, calls, updates } = await loadStore(t, { failFirst: true });
+  // A note summarised while it is still recording carries the live transcript:
+  // one space-joined paragraph, no "Label:" lines, and a colon in the first clause.
+  const transcript =
+    "Meeting at 10:30 we discussed the rollout plan. " +
+    "Then we covered the budget and the hiring plan. ".repeat(600).trim();
+  run(store, 21, { notes: "", meetingContext: "", transcript }, { isMeetingNote: false });
+  await waitForResult(store, updates);
+  assert.deepEqual(store.consumeErrorEvents(), []);
+  assert.equal(updates.length, 1);
+  const parts = calls.slice(1, -1);
+  assert.ok(parts.length > 1);
+  assert.equal(parts.map((call) => call.text).join("").split("Meeting at 10:").length - 1, 1);
+});
+
+test("parts never spend their output budget on thinking", async (t) => {
+  const { store, calls, updates } = await loadStore(t, {
+    failFirst: true,
+    storage: { noteFormattingDisableThinking: "false" },
+  });
+  run(store, 22, longMaterial(400));
+  await waitForResult(store, updates);
+  assert.equal(updates.length, 1);
+  assert.equal(calls[0].config.disableThinking, false);
+  assert.equal(calls.at(-1).config.disableThinking, false);
+  for (const call of calls.slice(1, -1)) assert.equal(call.config.disableThinking, true);
+});
+
+test("manual notes that cannot fit the final pass are refused before any part runs", async (t) => {
+  const { store, calls, updates } = await loadStore(t, {
+    budget: FLOOR_BUDGET,
+    failFirst: true,
+    processText: (text, config) => {
+      if (config.maxTokens === 4096) throw overflow();
+      return "Working notes";
+    },
+  });
+  const material = {
+    notes: "manual note ".repeat(6000),
+    meetingContext: "",
+    transcript: LINE.repeat(400),
+  };
+  run(store, 23, material);
+  await waitForResult(store, updates);
+  assert.equal(updates.length, 0);
+  assert.equal(calls.length, 1);
+  const [error] = store.consumeErrorEvents();
+  assert.equal(error.messageKey, "models.errors.contextTooLargeGeneric");
+});
+
+test("a long plain note is condensed as a document, not as a meeting", async (t) => {
+  const { store, calls, updates } = await loadStore(t, { failFirst: true });
+  const notes = "The proposal argues that the migration should wait for the audit.\n".repeat(600);
+  store.runBackgroundAction(
+    24,
+    notes,
+    "hash",
+    ACTION,
+    {
+      modelId: "qwen3.5-9b-q4_k_m",
+      isCloudMode: false,
+      material: { notes, meetingContext: "", transcript: "" },
+    },
+    LABELS
+  );
+  await waitForResult(store, updates);
+  assert.equal(updates.length, 1);
+  const parts = calls.slice(1, -1);
+  assert.ok(parts.length > 1);
+  for (const call of parts) {
+    assert.match(call.config.systemPrompt, /document/);
+    assert.doesNotMatch(call.config.systemPrompt, /speaker|Decisions|Action Items/);
+    assert.match(call.text, /^## Notes \(part \d+ of \d+\)\n/);
+  }
 });
