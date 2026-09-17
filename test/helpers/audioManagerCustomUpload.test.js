@@ -21,6 +21,8 @@ async function loadCustomManager(t, decode) {
       useLocalWhisper: false,
       cloudTranscriptionMode: "byok",
       cloudTranscriptionProvider: "custom",
+      cloudTranscriptionBaseUrl: "https://stt.example.com/v1",
+      cloudTranscriptionModel: "whisper-1",
       allowLocalFallback: false,
     },
   });
