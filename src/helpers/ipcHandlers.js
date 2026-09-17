@@ -6066,9 +6066,14 @@ class IPCHandlers {
           let uploadName = "audio.webm";
           if (provider === "custom" && buffer.length && !isWavFormat(buffer)) {
             try {
-              uploadBuffer = await convertBufferToWav(buffer);
-              uploadType = "audio/wav";
-              uploadName = "audio.wav";
+              const wavBuffer = await convertBufferToWav(buffer);
+              // Match fresh dictation: PCM expansion must not break an upload
+              // that the endpoint could accept in its original container.
+              if (wavBuffer.length <= route.sizeCapBytes) {
+                uploadBuffer = wavBuffer;
+                uploadType = "audio/wav";
+                uploadName = "audio.wav";
+              }
             } catch (conversionError) {
               // Fail open, matching the renderer: an unconverted retry is no
               // worse than today's behaviour.

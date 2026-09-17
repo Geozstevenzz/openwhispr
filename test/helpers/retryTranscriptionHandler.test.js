@@ -291,6 +291,31 @@ test("retry: audio already in WAV is uploaded untouched", async () => {
   assert.equal(uploadedPart().size, WAV_BUFFER.length);
 });
 
+test("retry: WAV expansion preserves uploads that fit the provider limit", async (t) => {
+  for (const wavSize of [25 * 1024 * 1024, 25 * 1024 * 1024 + 1]) {
+    await t.test(`${wavSize} converted bytes`, async () => {
+      fetches.length = 0;
+      const converted = Buffer.alloc(wavSize);
+      WAV_BUFFER.copy(converted);
+      convertBehavior = async () => converted;
+      try {
+        const result = await invoke(CUSTOM_SETTINGS);
+        assert.equal(result.success, true);
+        const part = uploadedPart();
+        const fits = wavSize === 25 * 1024 * 1024;
+        assert.equal(part.type, fits ? "audio/wav" : "audio/webm");
+        assert.equal(part.name, fits ? "audio.wav" : "audio.webm");
+        assert.deepEqual(
+          Buffer.from(await part.arrayBuffer()),
+          fits ? converted : Buffer.from([1, 2, 3])
+        );
+      } finally {
+        convertBehavior = async () => CONVERTED_WAV;
+      }
+    });
+  }
+});
+
 test("retry: built-in providers keep sending the stored container", async () => {
   fetches.length = 0;
   wavConversions.length = 0;

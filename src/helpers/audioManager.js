@@ -56,7 +56,11 @@ import {
   isSherpaLocalProvider,
 } from "../models/ModelRegistry";
 import { TINFOIL_PROXY_REQUIRED_ERROR } from "../services/transcriptionBaseUrl";
-import { resolveByokModel, resolveTranscriptionRoute } from "./transcriptionRoute.ts";
+import {
+  byokFileSizeLimit,
+  resolveByokModel,
+  resolveTranscriptionRoute,
+} from "./transcriptionRoute.ts";
 import { shouldSkipTranscriptionApiKey } from "./transcriptionAuth";
 import {
   isSelfHostedTranscription,
@@ -3390,12 +3394,18 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       let uploadAudio = optimizedAudio;
       if (needsWavConversion(provider, optimizedAudio.type, optimizedAudio.size)) {
         try {
-          uploadAudio = await convertToWav(optimizedAudio);
+          const wavAudio = await convertToWav(optimizedAudio);
+          // Keep compressed recordings usable on endpoints that already accept
+          // them when PCM expansion would exceed the upload limit.
+          if (wavAudio.size <= byokFileSizeLimit(provider)) {
+            uploadAudio = wavAudio;
+          }
           logger.debug(
-            "Re-encoded recording to WAV for custom endpoint",
+            "Prepared recording for custom endpoint",
             {
               fromType: optimizedAudio.type,
               fromSize: optimizedAudio.size,
+              toType: uploadAudio.type,
               toSize: uploadAudio.size,
             },
             "transcription"
@@ -3408,6 +3418,9 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           );
         }
       }
+
+      // Decoding can outlive cancellation and a newer recording's request.
+      if (wasCancelled()) throw new DOMException("Transcription cancelled", "AbortError");
 
       const formData = new FormData();
       // Determine the correct file extension based on the blob type
