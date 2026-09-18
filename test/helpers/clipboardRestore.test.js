@@ -753,7 +753,10 @@ test("pasteMacOS asks the binary to watch the paste land and restores promptly o
   await result.restoreComplete;
 
   assert.deepEqual(spawnCalls, [
-    { command: "/tmp/openwhispr-fast-paste", args: ["--await-paste", "1500"] },
+    {
+      command: "/tmp/openwhispr-fast-paste",
+      args: ["--await-paste", "1500", "--paste-length", "13"],
+    },
   ]);
   assert.equal(restoreCall.original, originalClipboard);
   assert.deepEqual(restoreCall.options, {
@@ -834,12 +837,18 @@ test("pasteMacOS leaves text on the clipboard when the keyboard layout cannot be
   };
 
   await assert.rejects(
-    manager.pasteMacOS({ type: "text", data: "previous clipboard" }),
+    manager.pasteMacOS(
+      { type: "text", data: "previous clipboard" },
+      { expectedClipboardText: "dictated text" }
+    ),
     /could not resolve the active keyboard layout/
   );
 
   assert.deepEqual(spawnCalls, [
-    { command: "/tmp/openwhispr-fast-paste", args: ["--await-paste", "1500"] },
+    {
+      command: "/tmp/openwhispr-fast-paste",
+      args: ["--await-paste", "1500", "--paste-length", "13"],
+    },
   ]);
   assert.equal(fakeClipboard.text, "dictated text");
   assert.deepEqual(fakeClipboard.writes, []);

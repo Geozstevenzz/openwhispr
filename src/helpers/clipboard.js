@@ -21,18 +21,12 @@ const PASTE_DELAYS = {
   linux: 50,
 };
 
-// macOS restores are gated on the fast-paste binary's verdict (`--await-paste`
-// in resources/macos-fast-paste.swift): once the focused field has visibly
-// taken the paste, the pasteboard has been read and a short settle is enough.
-// When that cannot be observed — Chromium apps keep their Accessibility tree
-// dormant, the osascript fallback never looks — the restore instead waits out
-// a busy target, because a ⌘V dequeued after the restore pastes the user's old
-// clipboard instead of the transcript (#1740). The budget is the binary's
-// whole watch: waiting for a busy target to become readable, then for the
-// paste to land.
 const PASTE_WATCH_BUDGET_MS = 1500;
 
 const RESTORE_DELAYS = {
+  // macOS waits for the fast-paste binary to see the paste land (`--await-paste`
+  // in resources/macos-fast-paste.swift). When it cannot tell, the longer delay
+  // covers a target that reads ⌘V late (#1740).
   darwin_consumed: 100,
   darwin: 1000,
   win32_nircmd: 500,
@@ -992,8 +986,18 @@ class ClipboardManager {
     const pasteDelay = options.fromStreaming ? (useFastPaste ? 15 : 50) : PASTE_DELAYS.darwin;
 
     // Only a restore needs to know when the target read the pasteboard.
-    const fastPasteArgs =
-      originalClipboard != null ? ["--await-paste", String(PASTE_WATCH_BUDGET_MS)] : [];
+    const watchesPaste = useFastPaste && originalClipboard != null;
+    const fastPasteArgs = watchesPaste
+      ? [
+          "--await-paste",
+          String(PASTE_WATCH_BUDGET_MS),
+          "--paste-length",
+          String(options.expectedClipboardText.length),
+        ]
+      : [];
+    // A watching binary's last poll can run ~0.8 s past its budget; killing it
+    // after ⌘V is posted would make the caller's retry paste a second time.
+    const killAfterMs = watchesPaste ? PASTE_WATCH_BUDGET_MS + 3000 : 3000;
 
     return new Promise((resolve, reject) => {
       setTimeout(() => {
@@ -1092,7 +1096,7 @@ class ClipboardManager {
           const errorMsg =
             "Paste operation timed out. Text is copied to clipboard - please paste manually with Cmd+V.";
           reject(new Error(errorMsg));
-        }, 3000);
+        }, killAfterMs);
       }, pasteDelay);
     });
   }
