@@ -21,8 +21,20 @@ const PASTE_DELAYS = {
   linux: 50,
 };
 
+// macOS restores are gated on the fast-paste binary's verdict (`--await-paste`
+// in resources/macos-fast-paste.swift): once the focused field has visibly
+// taken the paste, the pasteboard has been read and a short settle is enough.
+// When that cannot be observed — Chromium apps keep their Accessibility tree
+// dormant, the osascript fallback never looks — the restore instead waits out
+// a busy target, because a ⌘V dequeued after the restore pastes the user's old
+// clipboard instead of the transcript (#1740). The budget is the binary's
+// whole watch: waiting for a busy target to become readable, then for the
+// paste to land.
+const PASTE_WATCH_BUDGET_MS = 1500;
+
 const RESTORE_DELAYS = {
-  darwin: 450,
+  darwin_consumed: 100,
+  darwin: 1000,
   win32_nircmd: 500,
   win32_pwsh: 500,
   linux: 800,
@@ -979,17 +991,26 @@ class ClipboardManager {
     const useFastPaste = !!fastPasteBinary;
     const pasteDelay = options.fromStreaming ? (useFastPaste ? 15 : 50) : PASTE_DELAYS.darwin;
 
+    // Only a restore needs to know when the target read the pasteboard.
+    const fastPasteArgs =
+      originalClipboard != null ? ["--await-paste", String(PASTE_WATCH_BUDGET_MS)] : [];
+
     return new Promise((resolve, reject) => {
       setTimeout(() => {
         const pasteProcess = useFastPaste
-          ? spawn(fastPasteBinary)
+          ? spawn(fastPasteBinary, fastPasteArgs)
           : spawn("osascript", [
               "-e",
               'tell application "System Events" to key code 9 using command down',
             ]);
 
+        let output = "";
         let errorOutput = "";
         let hasTimedOut = false;
+
+        pasteProcess.stdout.on("data", (data) => {
+          output += data.toString();
+        });
 
         pasteProcess.stderr.on("data", (data) => {
           errorOutput += data.toString();
@@ -1003,9 +1024,18 @@ class ClipboardManager {
           if (code === 0) {
             this.safeLog(`Text pasted successfully via ${useFastPaste ? "CGEvent" : "osascript"}`);
             if (originalClipboard != null) {
+              const verdict = output.trim();
+              const delayMs = /^PASTE_CONSUMED\b/.test(verdict)
+                ? RESTORE_DELAYS.darwin_consumed
+                : RESTORE_DELAYS.darwin;
+              debugLogger.debug(
+                "Paste verdict",
+                { verdict: verdict || "none", restoreDelayMs: delayMs },
+                "clipboard"
+              );
               resolve({
                 restoreComplete: this._restoreClipboardAfterDelay(originalClipboard, {
-                  delayMs: RESTORE_DELAYS.darwin,
+                  delayMs,
                   expectedText: options.expectedClipboardText,
                 }),
               });

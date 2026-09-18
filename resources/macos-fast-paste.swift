@@ -10,6 +10,22 @@ if !AXIsProcessTrusted() {
 // arguments this stays what the paste path expects: ⌘V, no output.
 let copyMode = CommandLine.arguments.contains("--copy")
 let shortcutCharacter = copyMode ? "c" : "v"
+
+// `--await-paste <ms>` watches the frontmost app's focused field for the paste
+// landing (its character count or caret moves) so the caller restores the
+// user's clipboard only once the target has actually read the pasteboard — a
+// target that dequeues ⌘V after the restore pastes the old clipboard instead of
+// the transcript. The budget covers both waiting for a target still busy with
+// earlier work (it cannot take the paste yet either, so posting later costs no
+// effective time) and watching after the post. Prints PASTE_CONSUMED <ms>,
+// PASTE_TIMEOUT, or PASTE_UNVERIFIED when the field cannot be read through
+// Accessibility (Chromium apps keep their tree dormant) or focus moved.
+let awaitPasteMs: Int? = {
+    guard !copyMode,
+          let index = CommandLine.arguments.firstIndex(of: "--await-paste"),
+          index + 1 < CommandLine.arguments.count else { return nil }
+    return Int(CommandLine.arguments[index + 1])
+}()
 let commandModifierState = UInt32(cmdKey) >> 8
 
 func keyboardLayoutData(from inputSource: TISInputSource?) -> Data? {
@@ -66,10 +82,69 @@ guard let virtualKey = lookupVirtualKey(for: shortcutCharacter) else {
     exit(3)
 }
 
+struct FieldSnapshot: Equatable {
+    let characters: Int?
+    let caretEnd: Int?
+}
+
+func focusedField(of app: AXUIElement) -> (element: AXUIElement?, error: AXError) {
+    var value: AnyObject?
+    let error = AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &value)
+    guard error == .success, let element = value else { return (nil, error) }
+    return ((element as! AXUIElement), error)
+}
+
+// Nil when the field exposes neither signal — nothing to compare against.
+func snapshot(of field: AXUIElement) -> FieldSnapshot? {
+    var countValue: AnyObject?
+    let characters: Int? =
+        AXUIElementCopyAttributeValue(field, kAXNumberOfCharactersAttribute as CFString, &countValue) == .success
+            ? countValue as? Int
+            : nil
+
+    var rangeValue: AnyObject?
+    var caretEnd: Int? = nil
+    if AXUIElementCopyAttributeValue(field, kAXSelectedTextRangeAttribute as CFString, &rangeValue) == .success,
+       let rangeRef = rangeValue, CFGetTypeID(rangeRef) == AXValueGetTypeID() {
+        var range = CFRange()
+        if AXValueGetValue(rangeRef as! AXValue, .cfRange, &range) {
+            caretEnd = range.location + range.length
+        }
+    }
+
+    if characters == nil && caretEnd == nil { return nil }
+    return FieldSnapshot(characters: characters, caretEnd: caretEnd)
+}
+
 // Resolved before the keystroke is posted: this is the app that will receive it.
-let target = copyMode ? NSWorkspace.shared.frontmostApplication : nil
+let target = (copyMode || awaitPasteMs != nil) ? NSWorkspace.shared.frontmostApplication : nil
 if copyMode && target == nil {
     exit(1)
+}
+
+let watchStart = Date()
+func watchElapsedMs() -> Int { Int(Date().timeIntervalSince(watchStart) * 1000) }
+
+var watchedApp: AXUIElement? = nil
+var watchedField: AXUIElement? = nil
+var baseline: FieldSnapshot? = nil
+if let budgetMs = awaitPasteMs, let target = target {
+    // A stalled target must answer late, not never: the watch has its own deadline.
+    AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 0.25)
+    let app = AXUIElementCreateApplication(target.processIdentifier)
+    while true {
+        let (field, error) = focusedField(of: app)
+        if let field = field, let before = snapshot(of: field) {
+            watchedApp = app
+            watchedField = field
+            baseline = before
+            break
+        }
+        // Only a target that is busy (not one that cannot be read at all) is worth
+        // waiting for; it will take the paste once it drains anyway.
+        if error != .cannotComplete || watchElapsedMs() >= budgetMs { break }
+        usleep(15000)
+    }
 }
 
 guard let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: virtualKey, keyDown: true),
@@ -84,6 +159,28 @@ usleep(8000)
 keyUp.post(tap: .cgSessionEventTap)
 usleep(20000)
 
-if let target = target {
+if copyMode, let target = target {
     print("COPY_OK \(target.processIdentifier) \(target.localizedName ?? "")")
+}
+
+if let budgetMs = awaitPasteMs {
+    guard let app = watchedApp, let field = watchedField, let before = baseline else {
+        print("PASTE_UNVERIFIED")
+        exit(0)
+    }
+    while watchElapsedMs() < budgetMs {
+        if let current = focusedField(of: app).element {
+            // Focus moved: the field we measured is no longer the paste target.
+            if !CFEqual(current, field) {
+                print("PASTE_UNVERIFIED")
+                exit(0)
+            }
+            if let now = snapshot(of: current), now != before {
+                print("PASTE_CONSUMED \(watchElapsedMs())")
+                exit(0)
+            }
+        }
+        usleep(15000)
+    }
+    print("PASTE_TIMEOUT")
 }
