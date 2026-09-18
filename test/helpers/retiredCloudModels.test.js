@@ -192,7 +192,7 @@ test("a storage that cannot be written leaves the sentinel unset, so the next la
   };
 
   assert.deepEqual(sweepRetiredCloudModelSelections(storage, [CLEANUP]), []);
-  assert.equal(storage.map.get("_retiredTinfoilModelsMigrated"), undefined);
+  assert.equal(storage.map.get("_retiredTinfoilModelsMigrated2"), undefined);
   // Groq shares the storage but not the failure's blast radius.
   assert.equal(storage.map.get("_retiredGroqModelsMigrated"), undefined);
 });

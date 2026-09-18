@@ -34,12 +34,12 @@ export const RETIRED_CLOUD_MODELS: Record<string, RetiredProviderModels> = {
       "llama-3.1-8b-instant": "openai/gpt-oss-20b",
     },
   },
-  // All three shipped as seed entries — deepseek-v4-pro and kimi-k2-6 through
-  // v1.7.6, glm-5-2 through v1.9.2 — so anyone who simply took a default can
-  // be on one. deepseek-v4-flash was never seeded but was served live, and was
-  // deepseek-v4-pro's replacement here, until Tinfoil retired it for
-  // deepseek-v4-1-flash (2026-09-18). The first key shipped in v1.10.0, so
-  // adding it rotated the key.
+  // All three shipped as seed entries — deepseek-v4-pro in v1.7.4, kimi-k2-6
+  // through v1.8.3, glm-5-2 through v1.9.2 — so anyone who simply took a
+  // default can be on one. deepseek-v4-flash was never seeded but was served
+  // live, and was deepseek-v4-pro's replacement here, until Tinfoil retired it
+  // for deepseek-v4-1-flash (seen 2026-09-18). The first key shipped in
+  // v1.10.0, so adding it rotated the key.
   tinfoil: {
     migratedKey: "_retiredTinfoilModelsMigrated2",
     models: {
