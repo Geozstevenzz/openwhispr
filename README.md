@@ -40,6 +40,52 @@ OpenWhispr turns your voice into text, notes, and actions from your desktop. Pre
 
 \* On Intel Macs, live speaker identification and voice fingerprinting are unavailable: they depend on ONNX Runtime, which [stopped shipping macOS x86_64 binaries in 1.24](https://github.com/microsoft/onnxruntime/releases/tag/v1.24.1). Meetings still record and transcribe normally, and notes search falls back to keyword matching instead of semantic search.
 
+## Configure local Whisper large-v3-turbo
+
+This fork documents the local voice-to-text setup used with OpenWhispr 1.10.2 on Windows. The speech model is **Whisper large-v3-turbo**, listed as **Turbo** in OpenWhispr. It is the same speech model specified in [Sotto's model instructions](https://github.com/davis7dotsh/sotto/blob/main/Server/README.md#models). OpenWhispr runs it directly through whisper.cpp; no Sotto server, account, or API key is required.
+
+### Select and download the model
+
+1. Install OpenWhispr from the [upstream releases](https://github.com/OpenWhispr/openwhispr/releases/latest). Choose **Continue without an account** during setup if you only want local dictation.
+2. Open **Settings > Speech-to-Text > Dictation** and select **Local**.
+3. Choose **Whisper**, download **Turbo** (about 1.6 GB), and make sure it is selected after the download finishes. Its internal model ID is `turbo` and its file is `ggml-large-v3-turbo.bin`.
+4. Set the transcription language to automatic detection, or select the language you speak. Choose your microphone in Settings; this setup uses the Windows default microphone.
+5. Turn off **Enable text cleanup** and the dictation AI agent to match this speech-only setup. Leave cloud fallback disabled. Sotto's Qwen proofreading model is a separate text model and is not needed for voice-to-text.
+6. If you also use **Note Recording** or **Audio Upload**, select Local, Whisper, and Turbo in those tabs too. They have separate transcription settings.
+
+The model download needs internet access. Once downloaded, this dictation configuration runs locally without sending audio to a cloud transcription provider.
+
+### GPU acceleration
+
+Enable GPU acceleration in the local transcription settings and let OpenWhispr download the supported GPU pack. The app selects a backend based on the hardware and installed packs; a fresh NVIDIA installation may offer CUDA.
+
+The installation documented here was verified with **Vulkan on an NVIDIA GeForce GTX 1080 (8 GB VRAM)**, an AMD Ryzen 9 5900X, and 64 GB RAM. Those are the tested machine's specifications, not minimum requirements. A working Vulkan installation can be retained; CUDA is not required to use Turbo. CPU transcription also uses the same model, but latency will depend on the machine.
+
+### Model file and exact version
+
+With the default Windows cache location, the model is stored at:
+
+```text
+%USERPROFILE%\.cache\openwhispr\whisper-models\ggml-large-v3-turbo.bin
+```
+
+For the exact weights used in this setup, use [Sotto's pinned model download](https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-large-v3-turbo.bin). If downloading manually, fully quit OpenWhispr first, place the file in the folder above, then reopen the app and select Turbo. Do not replace an existing model without preserving a copy.
+
+| Check | Expected value |
+| --- | --- |
+| File size | 1,624,555,275 bytes |
+| SHA-256 | `1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69` |
+
+The checksum comes from [Sotto's download script](https://github.com/davis7dotsh/sotto/blob/main/scripts/download-model.sh). OpenWhispr's built-in download uses the model repository's `main` revision, so use the pinned link when exact file reproducibility matters.
+
+### Use dictation and start with Windows
+
+Set the dictation hotkey to **Ctrl + Windows**, choose **Tap** activation, and enable **Automatic pasting**. Place the cursor in a text field, press the hotkey, speak, and press it again to finish and paste. If the shortcut conflicts with another application, choose another in Settings.
+
+Enable **Settings > General > Launch at login** to start OpenWhispr in the system tray when you sign in to Windows. Confirm it is enabled in **Task Manager > Startup apps**.
+
+To check the setup, restart OpenWhispr, confirm Turbo remains selected, and dictate a short sentence into a text editor. The documented installation passed a synthetic speech transcription test with GPU acceleration active. Test your own microphone and automatic pasting as well.
+
 ## Features
 
 - **Voice dictation** — global hotkey to dictate into any app with automatic pasting
