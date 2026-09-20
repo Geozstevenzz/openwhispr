@@ -1,9 +1,13 @@
-const { Tray, Menu, nativeImage, app } = require("electron");
+const { Tray, Menu, nativeImage, app, systemPreferences } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const debugLogger = require("./debugLogger");
 const dockManager = require("./dockManager");
 const { i18nMain } = require("./i18nMain");
+
+// Keep this identity stable so macOS can restore the user's chosen position.
+const MACOS_TRAY_GUID = "eb809902-04b5-5b08-b12a-f81d6f27e185";
+const MACOS_TRAY_POSITION_KEY = `NSStatusItem Preferred Position ${MACOS_TRAY_GUID}`;
 
 class TrayManager {
   constructor() {
@@ -138,10 +142,21 @@ class TrayManager {
         return;
       }
 
-      this.tray = new Tray(trayIcon);
-
       if (process.platform === "darwin") {
+        try {
+          // Best-effort AppKit preference; registration preserves saved user positions.
+          systemPreferences.registerDefaults({ [MACOS_TRAY_POSITION_KEY]: 0 });
+        } catch (error) {
+          debugLogger.warn(
+            "Could not register the default macOS tray position",
+            { error: error?.message },
+            "tray"
+          );
+        }
+        this.tray = new Tray(trayIcon, MACOS_TRAY_GUID);
         this.tray.setIgnoreDoubleClickEvents(true);
+      } else {
+        this.tray = new Tray(trayIcon);
       }
 
       this.updateTrayMenu();
