@@ -86,6 +86,12 @@ Enable **Settings > General > Launch at login** to start OpenWhispr in the syste
 
 To check the setup, restart OpenWhispr, confirm Turbo remains selected, and dictate a short sentence into a text editor. The documented installation passed a synthetic speech transcription test with GPU acceleration active. Test your own microphone and automatic pasting as well.
 
+### Use the same model from an iPhone
+
+[Diction](https://diction.one/features/self-hosting-setup) can connect to this PC through Tailscale and use the same local Whisper Turbo model. This fork includes a Windows gateway launcher, a whisper.cpp adapter, and a private pairing QR helper. See the [Diction setup instructions](scripts/diction/README.md).
+
+The PC must be awake, signed in, and running OpenWhispr. On the iPhone, enable Tailscale, then use Diction's self-hosted **Scan to pair** option. The QR contains a device credential; keep it private. Select **Custom** if Diction asks which backend to use.
+
 ## Features
 
 - **Voice dictation** — global hotkey to dictate into any app with automatic pasting
